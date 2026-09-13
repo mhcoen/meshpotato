@@ -4,7 +4,7 @@ The next firing is computed from the machine's local wall clock, read as naive
 local time: the configured time plus a fresh random offset each day, so it never
 lands on the exact minute. The wait re-reads the clock every tick, so a DST change
 overnight or a machine that slept still fires when the wall clock says so. At firing the fortune is generated
-in the active voice on a random subject and posted through the same path as a
+in the built-in funny voice on a random subject, with a kindness instruction, through the same path as a
 reply: plain ASCII, the injection check, the length cap with word-budget retries,
 a global limiter token. If the channel is paused or the model fails, it retries
 every couple of minutes until a cutoff after the scheduled time, then skips the

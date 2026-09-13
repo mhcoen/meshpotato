@@ -18,8 +18,8 @@ any key may appear in any section.
 | `too_long_reply` | `That answer will not fit in one message, ask me something narrower.` | Sent when it still does not fit after the retries |
 | `apology` | `Sorry, I couldn't answer that one.` | Posted on model timeout or error |
 | `facts` | `""` | Local facts added to the system prompt after the built-in LoRa facts and the radio's own settings |
-| `[personas]` | six built-ins | Table of name = text presets, including serious; explicit tables replace the built-ins; see [Personalities](../README.md#personalities) |
-| `default_persona` | `funny` | The preset active at start and after a reset |
+| `[personas]` | seven built-ins | Table of name = text presets, including nice and serious; explicit tables replace the built-ins; see [Personalities](../README.md#personalities) |
+| `default_persona` | `nice` | Warm, helpful preset active at start and after a reset; other voices are selected by command |
 | `persona_timeout_min` | `120` | A switched personality reverts after this long |
 | `persona_reset_message` | `Back to the default personality.` | Posted when it reverts |
 | `command_prefix` | `/` | Commands are this prefix plus a preset name, `help`, or `reset` |
@@ -30,28 +30,30 @@ any key may appear in any section.
 | `ollama_keep_alive` | `30m` | How long Ollama keeps the model loaded between replies; the example config uses `24h`, since a cold load costs 10 to 15 s on the first reply after a lull |
 | `openai_base_url` | `http://127.0.0.1:1234/v1` | OpenAI compatible server, when `backend = "openai"` |
 | `temperature` | `0.6` | Sampling temperature |
-| `max_tokens` | `80` | Output token limit |
-| `model_timeout_s` | `30.0` | Hard timeout on the model call |
+| `max_tokens` | `80` | Ordinary reply output token limit; web replies allow 384 tokens for the internal JSON answer and supporting quote, with the same radio text cap |
+| `model_timeout_s` | `25.0` | One total deadline shared by web retrieval, initial generation and every shortening/content retry; retrieval uses at most 12 seconds of this budget |
+| `web_enabled` | `true` | Automatic current-information lookup and `/web`; sends the question to DuckDuckGo and fetches up to three public result pages |
+| `web_location` | `Madison, Wisconsin` | Default location for local weather/hours questions without an explicit location; dates use the computer's local timezone |
 | `global_rate_per_min` | `4.0` | Burst floor: replies per minute across all senders |
 | `global_burst` | `1` | Global bucket size |
 | `sender_rate_per_min` | `4.0` | Replies per minute per sender name |
 | `sender_burst` | `1` | Per sender bucket size |
 | `queue_max_pending` | `10` | Waiting questions/command replies, excluding the active answer; 0 restores drop-when-busy |
-| `queue_wait_s` | `600.0` | Maximum wait before processing; generated answers are retained through congestion pauses |
+| `queue_wait_s` | `600.0` | Maximum time from receipt to send, including a congestion pause after generation, when queueing is enabled |
 | `fortune_enabled` | `true` | Post a daily fortune |
 | `fortune_time` | `06:00` | Local time; a random offset up to `fortune_jitter_min` is added each day |
 | `fortune_jitter_min` | `12` | Random offset after `fortune_time` |
 | `fortune_cutoff_min` | `30` | Keep retrying a deferred fortune until this long after the slot, then skip the day |
 | `fortune_prefix` | `Fortune: ` | Lead-in on the post |
-| `fortune_prompt` | see example config | The request to the model; must contain `{subject}`, may use `{date}` |
-| `fortune_fallback` | `The mesh is quiet this morning, and so is your fortune.` | Posted if the fortune will not fit after the retries |
+| `fortune_prompt` | see example config | The request to the model; must contain `{subject}`, may use `{date}`; a blocked formatted prompt is a startup configuration error when fortunes are enabled |
+| `fortune_fallback` | `The mesh is quiet this morning, and so is your fortune.` | Checked fallback if generation is empty, oversized, or fails content checks after retries |
 | `adaptive_enabled` | `true` | Scale the global rate by channel load |
 | `utilization_poll_s` | `10.0` | Seconds between radio statistics polls |
 | `utilization_window_s` | `120.0` | Window for the duty cycle |
 | `duty_low` | `0.05` | Receive duty cycle at which the rate is halved |
 | `duty_high` | `0.15` | Receive duty cycle at which replies pause |
 | `tx_duty_budget` | `0.02` | Own-transmit airtime target, not a hard ceiling or network-wide budget |
-| `state_db` | `meshpotato.sqlite3` | SQLite conversation file, relative to the working directory; `""` disables persistence |
+| `state_db` | `meshpotato.sqlite3` | SQLite conversation file, restricted to its owner (0600), relative to the working directory; `""` disables persistence |
 | `state_save_interval_s` | `5.0` | Seconds between snapshots; also saves on clean shutdown and immediately for `/forget` |
 | `history_size` | `20` | Maximum recent channel lines, including saved history |
 | `history_max_age_s` | `3600.0` | Expire channel lines after one hour, including across restarts |

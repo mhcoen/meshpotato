@@ -41,11 +41,11 @@ async def test_ingestion_block_stops_current_request(harness):
 
 
 async def test_command_fails_closed_when_detector_raises(harness, monkeypatch):
+    h = harness()  # A runtime failure after successful configuration validation.
     def broken(*args, **kwargs):
         raise RuntimeError("detector failed")
 
     monkeypatch.setattr("bot.guard.detect_prompt_injection", broken)
-    h = harness()
     await h.say("Alice: /help")
     assert h.sent == []
 

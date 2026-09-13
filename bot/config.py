@@ -18,7 +18,8 @@ from pathlib import Path
 from typing import Any
 
 from bot.fortune import parse_hhmm
-from bot.personas import BUILTIN_PERSONAS, FORGET_COMMAND, HELP_COMMAND, MAGIC8_COMMAND, NAME_RE, RESET_COMMAND, ROLL_COMMAND, build_help
+from bot.guard import InjectionGate
+from bot.personas import BUILTIN_PERSONAS, FORGET_COMMAND, HELP_COMMAND, MAGIC8_COMMAND, NAME_RE, RESET_COMMAND, ROLL_COMMAND, WEB_COMMAND, build_help
 from bot.reply import plain_ascii
 
 ENV_PREFIX = "MESHPOTATO_"
@@ -58,7 +59,7 @@ class Config:
 
     # [personas] table: name -> persona text (built-ins when absent), plus the keys below
     personas: dict[str, str] = field(default_factory=lambda: dict(BUILTIN_PERSONAS))
-    default_persona: str = "funny"
+    default_persona: str = "nice"
     persona_timeout_min: float = 120.0
     persona_reset_message: str = "Back to the default personality."
     command_prefix: str = "/"
@@ -72,7 +73,11 @@ class Config:
     openai_base_url: str = "http://127.0.0.1:1234/v1"
     temperature: float = 0.6
     max_tokens: int = 80
-    model_timeout_s: float = 30.0
+    model_timeout_s: float = 25.0
+
+    # [web] Search and model calls share model_timeout_s; no paid search API.
+    web_enabled: bool = True
+    web_location: str = "Madison, Wisconsin"
 
     # [fortune]
     fortune_enabled: bool = True
@@ -81,10 +86,10 @@ class Config:
     fortune_cutoff_min: float = 30.0
     fortune_prefix: str = "Fortune: "
     fortune_prompt: str = (
-        "Write today's fortune for everyone on the channel: one silly, funny sentence in the style of a "
+        "Write today's fortune for the channel: one silly, funny sentence in the style of a "
         "fortune cookie, somehow involving {subject}. Do not mention or address anyone. Today is {date}."
     )
-    fortune_fallback: str = "The mesh is quiet this morning, and so is your fortune."
+    fortune_fallback: str = "A small kindness will return wearing a tiny party hat."
 
     # [limits]
     global_rate_per_min: float = 4.0
@@ -187,7 +192,13 @@ class Config:
             errors.append("fortune_prompt must contain {subject}")
         else:
             try:
-                self.fortune_prompt.format(subject="x", date="y")
+                formatted_fortune = self.fortune_prompt.format(subject="squirrels", date="Sunday, September 13")
+                if self.fortune_enabled and 0 <= self.injection_threshold <= 1:
+                    verdict = InjectionGate(self.injection_threshold).check(formatted_fortune)
+                    if verdict.error:
+                        errors.append("cannot validate fortune_prompt: injection detector failed")
+                    elif verdict.blocked:
+                        errors.append("fortune_prompt is blocked by the injection gate; reword it before enabling fortunes")
             except (KeyError, IndexError, ValueError) as exc:
                 errors.append(f"fortune_prompt has a bad placeholder ({exc}); only {{subject}} and {{date}} are allowed")
         if self.reply_max_chars > 0 and len(self.fortune_prefix + self.fortune_fallback + self.fortune_help_hint) > self.reply_max_chars:
@@ -199,7 +210,7 @@ class Config:
         for name, text in self.personas.items():
             if not NAME_RE.fullmatch(name):
                 errors.append(f"persona name {name!r} must be lowercase letters, digits, underscores, at most 16 chars")
-            if name in (HELP_COMMAND, RESET_COMMAND, FORGET_COMMAND, ROLL_COMMAND, MAGIC8_COMMAND):
+            if name in (HELP_COMMAND, RESET_COMMAND, FORGET_COMMAND, ROLL_COMMAND, MAGIC8_COMMAND, WEB_COMMAND):
                 errors.append(f"persona name {name!r} collides with a command")
             if not isinstance(text, str) or not text.strip():
                 errors.append(f"persona {name!r} must have non-empty text")
@@ -262,7 +273,8 @@ class Config:
     @property
     def help_pages(self) -> tuple[str, str]:
         return (
-            "1/2 Ask me anything, including LoRa questions or how your message reached me. "
+            "1/2 Ask about LoRa or reception. "
+            f"{self.command_prefix}{WEB_COMMAND} searches the web; "
             f"{self.command_prefix}{ROLL_COMMAND} rolls dice; "
             f"{self.command_prefix}{MAGIC8_COMMAND} answers yes/no questions.",
             self.help_message,

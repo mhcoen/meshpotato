@@ -130,7 +130,7 @@ class FakeBackend:
         self.calls: list[list[dict[str, str]]] = []
         self.closed = False
 
-    async def complete(self, messages: list[dict[str, str]]) -> str:
+    async def complete(self, messages: list[dict[str, str]], *, max_tokens: int | None = None) -> str:
         self.calls.append(messages)
         if self.delay:
             await asyncio.sleep(self.delay)
@@ -150,7 +150,8 @@ def make_config(**overrides: Any) -> Config:
     # Keep the historical six-byte identity and 150-character edge cases explicit.
     # Current release defaults and the longer node name have dedicated tests.
     values: dict[str, Any] = {"port": "/dev/fake", "reply_delay_s": 0.0, "queue_max_pending": 0,
-                              "bot_name": "MeshAI", "reply_max_chars": 150, "state_db": ""}
+                              "bot_name": "MeshAI", "reply_max_chars": 150, "state_db": "",
+                              "web_enabled": False}  # web tests explicitly inject fake retrieval
     values.update(overrides)
     return config_from_mapping(values, env={})
 

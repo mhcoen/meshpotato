@@ -21,7 +21,7 @@ class Completion:
 class Backend(Protocol):
     name: str
 
-    async def complete(self, messages: list[dict[str, str]]) -> str | Completion: ...
+    async def complete(self, messages: list[dict[str, str]], *, max_tokens: int | None = None) -> str | Completion: ...
 
     async def aclose(self) -> None: ...
 
@@ -46,11 +46,11 @@ class OllamaBackend:
         self._think = {"off": False, "on": True}.get(think)  # "omit" -> None
         self._keep_alive = keep_alive
 
-    async def complete(self, messages: list[dict[str, str]]) -> Completion:
+    async def complete(self, messages: list[dict[str, str]], *, max_tokens: int | None = None) -> Completion:
         kwargs: dict = {
             "model": self.model,
             "messages": messages,
-            "options": self._options,
+            "options": {**self._options, **({"num_predict": max_tokens} if max_tokens is not None else {})},
             "keep_alive": self._keep_alive,
         }
         if self._think is not None:
@@ -84,12 +84,12 @@ class OpenAICompatBackend:
         self._temperature = temperature
         self._max_tokens = max_tokens
 
-    async def complete(self, messages: list[dict[str, str]]) -> Completion:
+    async def complete(self, messages: list[dict[str, str]], *, max_tokens: int | None = None) -> Completion:
         payload = {
             "model": self.model,
             "messages": messages,
             "temperature": self._temperature,
-            "max_tokens": self._max_tokens,
+            "max_tokens": max_tokens if max_tokens is not None else self._max_tokens,
             "stream": False,
         }
         response = await self._client.post("/chat/completions", json=payload)

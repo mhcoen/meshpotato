@@ -12,6 +12,8 @@ from __future__ import annotations
 import re
 import unicodedata
 
+from bot.text_safety import safe_sender
+
 _THINK_RE = re.compile(r"<think>.*?(?:</think>|$)", re.DOTALL | re.IGNORECASE)
 _SENTENCE_RE = re.compile(r'''[.!?]["']?(?=\s|$)''')
 # Titles, dotted initialisms, and a compass letter after a number ("1200 N. Stoughton
@@ -108,7 +110,7 @@ def reply_body_room(sender: str, max_chars: int, max_bytes: int) -> int:
     prefix = reply_prefix(sender)
     # Preserve display names, including emoji joiners, but never emit line breaks,
     # terminal controls, or invalid UTF-8. Reject rather than change the identity.
-    if any(unicodedata.category(c) in {"Cc", "Cs", "Zl", "Zp"} for c in prefix):
+    if not safe_sender(sender):
         return 0
     return min(max_chars - len(prefix), max_bytes - len(prefix.encode("utf-8")))
 

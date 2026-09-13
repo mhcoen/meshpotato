@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from collections.abc import Callable, Iterable
 import time
 
+from bot.text_safety import transcript_field
+
 
 @dataclass(frozen=True)
 class HistoryEntry:
@@ -17,7 +19,7 @@ class HistoryEntry:
     rules: tuple[str, ...] = ()
 
     def line(self) -> str:
-        return f"{self.sender}: {self.text}"
+        return f"{transcript_field(self.sender)}: {transcript_field(self.text)}"
 
 
 def render_transcript(lines: list[str], max_chars: int) -> str:

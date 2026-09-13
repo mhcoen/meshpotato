@@ -74,6 +74,35 @@ def test_replacement_waits_for_old_cleanup_before_acquiring_lock(tmp_path, child
     assert child.wait(timeout=3) == 0
 
 
+def test_uninspectable_owner_can_release_lock_voluntarily(tmp_path, children, isolated, monkeypatch):
+    lock, started = tmp_path / "lock", tmp_path / "ready"
+    child = children("""
+import fcntl, json, os, sys, time
+from pathlib import Path
+with open(sys.argv[1], 'w') as f:
+    os.chmod(sys.argv[1], 0o600)
+    fcntl.flock(f, fcntl.LOCK_EX)
+    json.dump({'pid': os.getpid(), 'created': 0}, f)
+    f.flush()
+    Path(sys.argv[2]).touch()
+    time.sleep(.25)
+""", lock, started)
+    ready(child, started)
+    real_process = psutil.Process
+    denied = []
+
+    def process(pid=None):
+        if pid == child.pid:
+            denied.append(pid)
+            raise psutil.AccessDenied(pid)
+        return real_process(pid)
+
+    monkeypatch.setattr(psutil, "Process", process)
+    with SingleInstance(lock, grace_s=0, kill_wait_s=0):
+        assert denied
+    assert child.wait(timeout=3) == 0  # No signal; normal voluntary release.
+
+
 def test_stuck_owner_is_killed_and_lock_recovered(tmp_path, children, isolated):
     lock, started, cleaned = (tmp_path / name for name in ("lock", "ready", "cleaned"))
     child = children(HOLDER, lock, started, cleaned, "stuck")
@@ -194,6 +223,7 @@ def test_stop_command_needs_no_config_and_stops_owner(tmp_path, children, isolat
     assert child.wait(timeout=3) == 0
     assert "no other bot instances remain" in capsys.readouterr().out
     assert cli.main(["--stop"]) == 0  # idempotent
+    assert capsys.readouterr().out == "Mesh Potato check complete; no other bot instances remain.\n"
 
 
 def test_symlink_lock_is_rejected(tmp_path, isolated):
@@ -205,6 +235,21 @@ def test_symlink_lock_is_rejected(tmp_path, isolated):
         with SingleInstance(lock):
             pytest.fail("symlink accepted")
     assert target.read_text() == "keep me"
+
+
+def test_replacement_through_symlinked_parent_waits_for_cleanup(tmp_path, children, isolated):
+    real = tmp_path / "real"
+    real.mkdir(mode=0o700)
+    alias = tmp_path / "alias"
+    alias.symlink_to(real, target_is_directory=True)
+    lock = alias / "lock"
+    started, cleaned = tmp_path / "ready", tmp_path / "cleaned"
+    child = children(HOLDER, lock, started, cleaned, "normal")
+    ready(child, started)
+    with SingleInstance(lock, grace_s=1, kill_wait_s=1) as instance:
+        assert instance.path == real.resolve() / "lock"
+        assert cleaned.exists()
+    assert child.wait(timeout=3) == 0
 
 
 def test_simultaneous_launches_never_overlap(tmp_path, children):

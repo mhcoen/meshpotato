@@ -102,7 +102,7 @@ def test_magic8_cannot_be_shadowed_by_persona():
 def test_magic8_help_fits_renamed_radio():
     cfg = make_config(bot_name="Mesh Potato", reply_max_chars=147)
     assert cfg.help_pages[0] == (
-        "1/2 Ask me anything, including LoRa questions or how your message reached me. "
+        "1/2 Ask about LoRa or reception. /web searches the web; "
         "/roll rolls dice; /magic8 answers yes/no questions."
     )
     assert len(cfg.help_pages[0]) <= cfg.reply_max_chars
