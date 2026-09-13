@@ -73,13 +73,15 @@ def public_target(url: str) -> tuple[str, int, str, str]:
     return host, port, addresses[0][4][0], parsed.scheme
 
 
-def fetch_page(url: str) -> dict:
+def fetch_page(url: str, *, json_response: bool = False) -> dict:
     """No proxies, cookies, JS, credential forwarding, or second DNS resolution."""
     deadline = time.monotonic() + 8
     try:
         for _ in range(4):
             if time.monotonic() >= deadline:
                 raise TimeoutError("page deadline")
+            if json_response and (urlsplit(url).hostname != "site.api.espn.com" or urlsplit(url).scheme != "https"):
+                raise ValueError("unexpected scoreboard origin")
             host, port, address, scheme = public_target(url)
             conn = http.client.HTTPConnection(host, port, timeout=4)
             sock = socket.create_connection((address, port), timeout=4)
@@ -89,18 +91,23 @@ def fetch_page(url: str) -> dict:
                 conn.sock = sock
                 parsed = urlsplit(url)
                 target = (parsed.path or "/") + ("?" + parsed.query if parsed.query else "")
-                conn.request("GET", target, headers={"Host": host, "User-Agent": "MeshPotato/1.7",
-                                                     "Accept-Encoding": "identity"})
+                conn.request("GET", target, headers={"Host": host, "Accept-Encoding": "identity",
+                                                     **({"Cache-Control": "no-cache", "Accept": "application/json",
+                                                         "User-Agent": "Mozilla/5.0 (compatible; MeshPotato/1.7; +https://github.com/mhcoen/meshpotato)"}
+                                                        if json_response else {"User-Agent": "MeshPotato/1.7"})})
                 response = conn.getresponse()
                 if response.status in {301, 302, 303, 307, 308}:
+                    if json_response:
+                        raise ValueError("scoreboard redirect refused")
                     url = urljoin(url, response.getheader("location", ""))
                     continue
                 if response.status != 200:
-                    raise ValueError("page unavailable")
+                    raise ValueError(f"scoreboard HTTP {response.status}" if json_response else "page unavailable")
                 if response.getheader("content-encoding", "identity").lower() not in {"", "identity"}:
                     raise ValueError("unsupported content encoding")
                 kind = response.getheader("content-type", "").lower()
-                if not any(t in kind for t in ("text/html", "application/xhtml+xml", "text/plain")):
+                types = ("application/json",) if json_response else ("text/html", "application/xhtml+xml", "text/plain")
+                if not any(t in kind for t in types):
                     raise ValueError("unsupported content type")
                 raw = bytearray()
                 while True:
@@ -114,6 +121,13 @@ def fetch_page(url: str) -> dict:
                     raw.extend(chunk)
                     if len(raw) > 1_000_000:
                         raise ValueError("page exceeds 1 MB")
+                if json_response:
+                    # Scores may be cached by the provider, but never knowingly use
+                    # a stale CDN response or follow a redirect to another provider.
+                    if urlsplit(url).hostname != "site.api.espn.com" or int(response.getheader("age", "0")) > 60:
+                        raise ValueError("stale or unexpected scoreboard origin")
+                    data = json.loads(raw)
+                    return data if isinstance(data, dict) else {}
                 charset = re.search(r"charset=([\w-]+)", kind)
                 html = raw.decode(charset[1] if charset else "utf-8", errors="replace")
                 text = extract_text(html) if "html" in kind else html
@@ -133,11 +147,16 @@ def fetch_page(url: str) -> dict:
                 conn.close()
                 sock.close()
         raise ValueError("too many redirects")
-    except Exception:  # one broken page/extractor must not discard the other results
+    except Exception as exc:  # one broken page/extractor must not discard the other results
+        if json_response:
+            return {"_error": str(exc)[:120] if isinstance(exc, ValueError) else type(exc).__name__}
         return {}
 
 
 def collect(query: str) -> list[dict]:
+    from bot.sports import is_score_query, collect_scores
+    if is_score_query(query):
+        return collect_scores(query, lambda url: fetch_page(url, json_response=True))
     # Pin the engine instead of DDGS auto selecting undisclosed providers.
     results = DDGS(timeout=5).text(query, max_results=5, region="us-en", backend="duckduckgo")
     urls = list(dict.fromkeys(r["href"] for r in results if r.get("href")))[:3]
