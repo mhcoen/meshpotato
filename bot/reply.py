@@ -14,7 +14,17 @@ import unicodedata
 
 _THINK_RE = re.compile(r"<think>.*?(?:</think>|$)", re.DOTALL | re.IGNORECASE)
 _SENTENCE_RE = re.compile(r'''[.!?]["']?(?=\s|$)''')
-_ABBREVIATION_RE = re.compile(r"(?:\b(?:dr|mr|mrs|ms|prof|sr|jr|st|vs|etc)|\b[a-z](?:\.[a-z])+)\.$", re.I)
+# Titles, dotted initialisms, and a compass letter after a number ("1200 N. Stoughton
+# Rd") never end a sentence; a lone letter otherwise does ("plan B. Then relax.").
+_ABBREVIATION_RE = re.compile(
+    r"(?:\b(?:dr|mr|mrs|ms|prof|sr|jr|st|vs|etc|sgt|capt|lt|col|gen|rev|hon)|\b[a-z](?:\.[a-z])+|\d\s+[nsew])\.$",
+    re.I,
+)
+# Street and unit abbreviations can end a sentence ("25 mph. Drive safely."); they
+# continue it only when a lowercase word follows ("Park Ave. near the lake").
+_UNIT_ABBREVIATION_RE = re.compile(
+    r"\b(?:ave|blvd|hwy|rd|ct|ln|mt|ft|co|inc|ltd|approx|dept|univ|bros|fig|vol|mph|kph|kmh|lbs|oz)\.$", re.I
+)
 _QUOTE_PAIRS = (('"', '"'), ("'", "'"), ("\u201c", "\u201d"), ("\u2018", "\u2019"))
 
 # Dashes used as separators read as commas; a hyphen inside a word stays a hyphen.
@@ -68,8 +78,13 @@ def first_sentence(text: str) -> str:
     """
     keep_answer = False
     for match in _SENTENCE_RE.finditer(text):
-        if match.group().startswith(".") and _ABBREVIATION_RE.search(text[:match.start() + 1]):
-            continue
+        if match.group().startswith("."):
+            head = text[:match.start() + 1]
+            tail = text[match.end():].lstrip()
+            if _ABBREVIATION_RE.search(head):
+                continue
+            if _UNIT_ABBREVIATION_RE.search(head) and tail and not tail[0].isupper():
+                continue
         if not keep_answer and match.group().startswith("?"):
             keep_answer = True
             continue

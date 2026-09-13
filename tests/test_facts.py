@@ -38,13 +38,29 @@ async def test_facts_survive_a_persona_switch(harness):
     h = harness(global_burst=5, sender_burst=5)
     await h.service.start()
     await h.say("Alice: /marvin")
-    await h.say("Alice: hello")
+    await h.say("Alice: hello, what does SF7 mean")
     system = h.backend.calls[-1][0]["content"]
     assert "cosmic gloom" in system and LORA_FACTS in system
 
 
 async def test_facts_are_present_before_start_without_radio_settings(harness):
     h = harness()
-    assert await h.say("Alice: hi") is Decision.ANSWERED
+    assert await h.say("Alice: which coding rate is best") is Decision.ANSWERED
     system = h.backend.calls[-1][0]["content"]
     assert LORA_FACTS in system and "This radio is set to" not in system
+
+
+async def test_radio_facts_only_for_radio_questions(harness):
+    h = harness(facts="The mesh is centered on Madison, Wisconsin.", global_burst=9, sender_burst=9)
+    await h.service.start()
+    await h.say("Alice: any tips for keeping tomatoes alive in September?")
+    system = h.backend.calls[-1][0]["content"]
+    assert LORA_FACTS not in system and "This radio is set to" not in system
+    assert "How this bot works" in system and system.endswith("The mesh is centered on Madison, Wisconsin.")
+    for prompt in ("how far can SF7 reach", "is my antenna any good", "what is the noise floor tonight", "sf12 or sf7",
+                   "What settings are you using?", "what are you running on"):
+        await h.say(f"Bob: {prompt}")
+        assert LORA_FACTS in h.backend.calls[-1][0]["content"], prompt
+    for prompt in ("Have you heard any good jokes?", "what is the best route to the lake", "is the power out on your side of town"):
+        await h.say(f"Carol: {prompt}")
+        assert LORA_FACTS not in h.backend.calls[-1][0]["content"], prompt

@@ -34,7 +34,7 @@ async def test_roll_obeys_trigger_and_custom_command_prefix(harness):
     h = harness(trigger_prefix="!ai ", command_prefix="!")
     assert await h.say("Alice: !roll") is Decision.DROP_NO_TRIGGER
     assert await h.say("Alice: !ai !roll") is Decision.ANSWERED_ROLL
-    assert "!roll rolls dice." in h.cfg.help_pages[0]
+    assert "!roll rolls dice;" in h.cfg.help_pages[0]
     assert all("!roll 3" not in page for page in h.cfg.help_pages)
     assert len(h.sent) == 1 and not h.backend.calls
 

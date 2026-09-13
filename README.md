@@ -1,14 +1,5 @@
 # Mesh Potato
 
-Formerly MeshAI. The repository is now [mhcoen/meshpotato](https://github.com/mhcoen/meshpotato).
-The command is now `meshpotato`; `meshai` and `MESHAI_*` environment variables
-remain compatible aliases. `MESHPOTATO_*` takes precedence when both are set.
-When upgrading, reinstall the package to add the new command, set both the
-companion radio's node name and `bot_name` to `Mesh Potato`, and set
-`reply_max_chars = 147` before restarting. Startup refuses a missing or mismatched
-radio node name, protecting both the packet budget and the own-name loop guard.
-Existing screenshots show the old name.
-
 [![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-pytest-green.svg)](#development)
@@ -20,8 +11,8 @@ posts a one sentence reply back to the channel as `@[sender] answer`. Every
 message and every reply passes a built-in prompt injection detector before it
 can reach the model or the radio.
 
-It is a small Python package with no web interface, no database, and no
-history on disk.
+It is a small Python package with no web interface or database server.
+A local SQLite file keeps recent conversations across restarts.
 
 A live instance runs on the `#ai` channel of the MeshCore mesh in
 southern Wisconsin, centered on Madison. If you are on that mesh, add `#ai`
@@ -32,22 +23,19 @@ queue, so a delayed answer can mean congestion rather than a fault.
 
 ## Screenshots
 
-What people on the channel see, in the MeshCore app on your phone:
-
-<p align="center">
-  <img src="docs/phone.png" width="340" alt="The #ai channel in the MeshCore app: two people talking and Mesh Potato answering each of them, its replies highlighted">
-</p>
-
 What you see, in the terminal monitor: radio and channel state, rate limits,
-channel utilisation, and every message with the bot's decision on it:
+channel utilisation, and every message with the bot's decision on it
+(current UI with sample traffic):
 
 ![The Mesh Potato terminal monitor](docs/tui.svg)
 
 ## Features
 
-- Answers every message on one MeshCore channel. On a shared channel, an
-  optional trigger prefix such as `!ai` limits it to messages meant for it
-- Per-person memory of recent exchanges, so follow-up questions make sense.
+- Answers every message on one MeshCore channel, skipping bare reactions and
+  lines addressed to someone else, and staying out of conversations between
+  other people. On a shared channel, an optional trigger prefix such as `!ai`
+  limits it to messages meant for it
+- Per-person memory of recent exchanges, preserved across restarts so follow-up questions make sense.
   Overlapping exchanges appear only once in model context; `/forget` clears
   your personal memory, not the shared channel history
 - Talks LoRa, not information theory. It knows the mesh's settings and what
@@ -70,8 +58,8 @@ channel utilisation, and every message with the bot's decision on it:
 
 ## Also
 
-- One sentence ASCII answers, capped at 147 characters including the
-  mention and checked against the radio's byte limit; sender names are
+- One sentence ASCII answers, automatically sized to fit the radio's
+  160-byte limit including the node name and mention; sender names are
   mentioned exactly as sent
 - Loop guard, prompt length cap, hard model timeout with a fixed apology
 - Rate limits, global and per sender, as a burst floor; up to ten waiting
@@ -358,6 +346,29 @@ what the radio heard that the bot never received (see
 level log to `<log file>.debug`. Stop it with Ctrl-C or SIGTERM; the bot
 unsubscribes, stops message fetching, and closes the port.
 
+Only one Mesh Potato instance runs per login user on a computer, even across
+different terminals, checkouts, or config files. Starting `meshpotato` stops the
+previous instance and waits for its radio connection to close before proceeding.
+It also finds older instances launched with the former `meshai` command. Shutdown
+checks again for leftover older instances. A process that ignores the shutdown
+request for 15 seconds is killed; if it still cannot be stopped, the new bot
+refuses to start.
+
+To stop the bot from **any terminal**, without finding its original tab or loading
+a config file:
+
+```bash
+.venv/bin/meshpotato --stop
+```
+
+`meshpotato` is the current command name. `meshai` remains a compatibility alias
+and uses the same process protection. The lock is kept in
+`~/.meshpotato/instance.lock`; a crash releases it automatically. Leave that file
+in place, since deleting a live lock can defeat coordination between launches.
+This controls your user's processes on this computer, not bots on other hosts or
+under other accounts. Disable any external service that automatically restarts
+the bot if you want it to stay stopped.
+
 After a successful start, the bot announces its name, package version, configured
 LLM, and repository link in one message, for example:
 
@@ -398,23 +409,40 @@ part is whatever the sending node put there; nothing verifies it.
    space) on a shared channel, and only messages that begin with exactly
    that text are answered; the text after it is the prompt and must not be
    empty.
-4. **Length.** Prompts over `prompt_max_chars` are dropped.
-5. **Injection check, prompt.** Dropped if the injection score is at or above
+4. **Triage.** Only without a trigger prefix, where every line is a prompt: a
+   bare reaction (lol, an emoji, thanks, up to three such words) has nothing to
+   answer and is dropped as `dropped:chatter`; a line that mentions someone with
+   `@[name]` anywhere is part of a conversation between people and is dropped
+   as `dropped:addressed-elsewhere`. Both still enter the channel history as
+   background. With a trigger prefix the person addressed the bot on purpose
+   and everything is answered.
+5. **Length.** Prompts over `prompt_max_chars` are dropped.
+6. **Injection check, prompt.** Dropped if the injection score is at or above
    `injection_threshold`.
-6. **Context.** The sender's remembered exchanges (see [Per-person memory](#per-person-memory)) and the last `history_size` channel lines, including the bot's
+7. **Context.** The sender's remembered exchanges (see [Per-person memory](#per-person-memory)) and the last `history_size` channel lines, including the bot's
    own posts and excluding lines the detector flagged when they arrived, are
    rendered as `Sender: text`, trimmed from the oldest end to
    `transcript_max_chars`, and placed in one user message after the current
    prompt, between markers that label them as untrusted. History is never
-   replayed as earlier chat turns. Reception measurements for this question
-   go in a separate block before the references. Exchanges included in personal memory are
+   replayed as earlier chat turns. For a question about reception (signal,
+   RSSI, SNR, hops, whether it heard you) that question's measurements go in a
+   separate block before the references, and the persona is told to state them
+   plainly first; other messages do not carry the block, because given the
+   numbers on every message the model recited them in reply to greetings.
+   Exchanges included in personal memory are
    omitted from the channel block before trimming. Relevant local radio
-   reference passages go in a separate, bounded background block.
-7. **Injection check, context.** The transcript, the sender's remembered
+   reference passages go in a separate, bounded background block. The LoRa
+   facts and the radio's own settings are in the system prompt only for a
+   question that mentions radio (SF, bandwidth, RSSI, hops, antenna, the
+   reference corpus keywords); present on every question, they were the only
+   concrete material there and every joke drifted to signal strength. How the
+   bot itself works (its commands, the personality timeout, that it has no
+   clock and no internet) and the operator's `facts` are always present.
+8. **Injection check, context.** The transcript, the sender's remembered
    exchanges, reception measurements, selected radio references, and the prompt together, so fragments that pass one at a time
    but add up to an instruction are caught here. This runs before any rate-limit token is
    spent, so a message blocked here costs the bot nothing.
-8. **Queue and rate limits.** One active answer and up to `queue_max_pending`
+9. **Queue and rate limits.** One active answer and up to `queue_max_pending`
    waiting questions or command replies, in arrival order. Waiting work spends
    no tokens and expires after `queue_wait_s`, before model generation. A full
    queue rejects new arrivals, preserving those already waiting. The head waits
@@ -424,24 +452,62 @@ part is whatever the sending node put there; nothing verifies it.
    memory. Tokens are reserved, committed on a send
    attempt, and refunded on injection blocks or other unsent outcomes. Refill
    timing is anchored to transmission, so slow generation cannot bunch replies.
-9. **Model.** One call under a hard timeout of `model_timeout_s`. On a
-   timeout or any error the fixed `apology` text is posted instead.
-10. **Shape.** Strip any leaked `<think>` block, collapse whitespace, reduce
+10. **Model.** One call under a hard timeout of `model_timeout_s`. On a
+    timeout or any error the fixed `apology` text is posted instead. Without
+    a trigger prefix the system prompt also allows the single word `PASS` for
+    a remark meant for someone else or a bare reaction; the bot then sends
+    nothing and the decision is `declined`. A pass on a message that looks
+    like a question or request (a question mark, or an opener such as what,
+    how, can, tell, explain) gets one retry with the rule restated, since the
+    model otherwise uses it as an exit from questions it cannot answer.
+11. **Shape.** Strip any leaked `<think>` block, collapse whitespace, reduce
     to plain ASCII with ordinary punctuation, keep the first sentence. If
     the first sentence is a question the next sentence is kept too, so a
-    riddle keeps its punchline.
-11. **Injection check, reply.** Every generated candidate is checked before a
+    riddle keeps its punchline. Titles, street abbreviations, dotted
+    initialisms, and a compass letter after a number (`1200 N. Stoughton Rd`)
+    do not end the sentence.
+12. **Injection check, reply.** Every generated candidate is checked before a
     shortening retry or fallback decision. If flagged, nothing is sent, not even
     the apology. The complete outgoing line, including the sender prefix, is
     checked too; this also applies to fixed replies and announcements.
-12. **Fit.** The answer must fit both the character cap after `@[sender] ` and
+13. **Fit.** The answer must fit both the character cap after `@[sender] ` and
     the 160-byte radio limit after the UTF-8 encoded node name, `: `, and mention.
     If it exceeds the smaller remaining budget, it goes back to the model with its length and the exact
     limit, up to `shorten_retries` times, the second time with a tighter
     target. If it still does not fit, the fixed `too_long_reply` line is sent
     instead. A backend response stopped by its token limit also takes this
     shortening path. Model output and fixed lines are never sliced to fit.
-13. **Send.** `@[sender] ` plus the ASCII answer, preserving the sender name
+14. **Reply check.** Small models copy their own earlier replies out of the
+    context blocks and echo the message they were sent, whatever the rules
+    say. A reply that repeats one of the bot's recent replies (to the same
+    person at three quarters similarity, to anyone else near verbatim, and
+    only when any numbers in the two match), that is the message itself, a
+    fragment of it, or the message with a tail (one-word messages excepted,
+    "Hello?" gets "Hello."), that contains a `@[` mention, that makes fun of
+    the person asking, or that reaches for radio imagery when the message is
+    not about radio, goes back to the model once with the problem spelled
+    out, after that candidate's own shortening. The two content checks are
+    structural, not word lists: a jab is a sarcastic tag ("how original"), a
+    competence clause ("for someone who cannot"), an insulting second-person
+    predicate, a pejorative possessive ("your drama"), or a belittling frame
+    ("funny how ... you"); a radio metaphor is a simile or comparison whose
+    object is a radio noun ("like a quiet signal", "than your Wi-Fi"), a
+    figurative frame around static or noise ("lost in the static"), a radio
+    verb applied to a feeling ("rerouting your sadness"), or a reply that opens
+    as a radio status report ("Signal stable, no drift") when nobody asked
+    about radio. A jab also includes a put-down by comparison to the asker's
+    beliefs ("just like your faith in this channel"). Literal uses pass:
+    "a static local variable", "a red traffic signal", "a signal notifies a
+    process". A question that mentions radio skips the metaphor check, so
+    "traffic signal" questions do too. Not caught: bare figurative statements
+    with no marker ("the signal fades"), sarcasm carried by tone alone, and
+    comparisons to the asker outside the one covered frame. If the replacement has any problem, is empty, is cut off by
+    the token limit, fails, or still does not fit, nothing is sent and the
+    decision is `dropped:bad-reply` with the reason; a rejected reply is never
+    replaced by the fallback line or the apology. Replies under 10 characters
+    are never repeats, and replies under 40 count only when identical. The
+    retry is logged as `reply_retry`.
+15. **Send.** `@[sender] ` plus the ASCII answer, preserving the sender name
     verbatim so the app can recognize the mention, including emoji or accents.
     Unicode is allowed only in this mention; names containing control characters
     or line breaks are rejected, not rewritten.
@@ -469,10 +535,12 @@ handling produces an `inbound` decision record with
 `sender`, `prompt`, `path_len`, `decision`, and the reason, or the injection
 score and matched rules, when it was dropped. Decisions: `answered`,
 `answered:too-long-fallback`, `answered:help`, `answered:reset`, `answered:forget`,
-`persona-switched`, `apology`, `dropped:loop-guard`, `dropped:no-trigger`, `dropped:too-long`,
-`dropped:injection-blocked`, `dropped:rate-limited`, `dropped:queue-full`,
-`dropped:queue-expired`, `dropped:empty-reply`,
-`dropped:send-failed`.
+`answered:roll`, `answered:magic8`, `persona-switched`, `apology`, `declined`,
+`dropped:loop-guard`, `dropped:no-trigger`, `dropped:chatter`,
+`dropped:addressed-elsewhere`, `dropped:too-long`, `dropped:injection-blocked`,
+`dropped:rate-limited`, `dropped:queue-full`, `dropped:queue-expired`,
+`dropped:empty-reply`, `dropped:bad-reply`, `dropped:send-failed`,
+`dropped:state-failed`.
 
 ## Rate limits and channel load
 
@@ -564,7 +632,9 @@ is near the top of this README.
 
 A switched personality reverts to the default after `persona_timeout_min`
 (120), and the bot posts `persona_reset_message` when it does. Switching
-again restarts the clock. Only preset text ever reaches the model; nothing
+again restarts the clock. The bot's own recent replies stay in the model's
+context across a switch; the reply check refuses verbatim repeats of them,
+but the new voice can still echo the old one for a message or two. Only preset text ever reaches the model; nothing
 typed on the channel does, and an unknown command also gets both help pages.
 Help pages are public, with no sender mention. Each page has its own global
 and per-sender rate-limit token and airtime checks; the second waits
@@ -590,9 +660,14 @@ limits, queue, and airtime controls apply.
 Writing a preset for a small model:
 
 - Say what the humor may target and what it may not. "Tease the questioner"
-  produced cruelty; the built-ins aim the joke at the question, the
-  technology, the weather, the mesh, or the bot itself, and answer anything
-  personal straight.
+  produced cruelty; the built-ins aim the joke at something in the message,
+  the question, the weather, or the bot itself, and answer anything personal
+  straight.
+- Rule out radio and signal jokes by name. The only concrete material in the
+  system prompt is radio, so left alone every joke drifts to signal strength
+  and they all sound the same.
+- Say what a greeting or a bare reaction gets. With nothing in the message to
+  aim at, the jab otherwise lands on the person.
 - Tell it to lead with the joke and fold the answer into the same sentence.
   An aside after the answer gets dropped under the one-sentence rule.
 - Do not include sample lines. The model copies them word for word and
@@ -600,11 +675,14 @@ Writing a preset for a small model:
 - Do not give the persona a label noun; it gets quoted back when someone
   asks what the bot is.
 
-Every personality also carries a short block of LoRa facts (how coding
-rate, spreading factor, bandwidth, RSSI, and SNR read on a mesh, where the
-textbook meaning and the mesh meaning differ) and the radio's own settings
-read from the companion at startup, so the bot knows its frequency,
-bandwidth, spreading factor, coding rate, and power. Add local facts with
+For radio questions every personality also carries a short block of LoRa
+facts (how coding rate, spreading factor, bandwidth, RSSI, and SNR read on a
+mesh, where the textbook meaning and the mesh meaning differ) and the radio's
+own settings read from the companion at startup, so the bot knows its
+frequency, bandwidth, spreading factor, coding rate, and power. Other
+questions do not get that block, which keeps the humor off signal strength.
+Every question carries a short description of how the bot works, so it
+answers questions about its own commands and timeout truthfully. Add local facts with
 the `facts` key: where the mesh is, what the repeaters are called, anything
 people are likely to ask. The example config carries the facts for the
 Madison mesh; replace them with yours.
@@ -629,7 +707,14 @@ held at once, least recently seen out first, which is also what stops a
 name-rotating flood from filling it. Expired entries are swept on access and
 at least once a minute while the bot is running. `/forget` wipes the bot's
 memory of the sender and prevents older in-flight requests from repopulating
-it. Everything is in memory only and a restart clears it.
+it, including saved personal memory. Shared channel history is separate and
+is not erased by `/forget`.
+
+Recent conversations survive restarts in `meshpotato.sqlite3`, a local SQLite
+file with no database server to install. Channel history keeps at most 20
+lines and expires after one hour; personal memory keeps the limits above.
+See [Conversation storage](docs/storage.md) for save timing, configuration,
+and database maintenance.
 
 Sender names are not authenticated, so this is continuity for a
 conversation, not identity: anyone can claim a name and inherit its
@@ -671,7 +756,8 @@ Jitter and the retry cutoff are capped before midnight. A send failure ends
 the day's attempt because a missing acknowledgement may hide a successful
 transmission. The scheduler remembers consumed days while running and skips
 today after a restart in the repeated autumn DST hour. Without persistent
-state, arbitrary clock rollback across a restart cannot be deduplicated.
+fortune bookkeeping, arbitrary clock rollback across a restart cannot be
+deduplicated; the conversation database does not store fortune schedules.
 The monitor shows the next slot and the counts.
 
 ## Security
@@ -690,8 +776,11 @@ matching, and takes well under a millisecond. Text is normalised first
 (look-alike characters folded to ASCII, zero width and bidi control
 characters removed, case and repeated punctuation collapsed), split into
 clauses, and each clause is scored against rules for instruction overrides,
-concealment, secret solicitation, goal rewrites, urgency, and their
-combinations. The result is a score between 0 and 1 and the names of the
+concealment, secret solicitation, goal rewrites, urgency, relay requests
+(repeat or say a quoted payload, tell everyone), style overrides (from now
+on, all your replies, your new name is), and their combinations. A bare
+"ignore" is ordinary speech and is not an override on its own; it needs an
+instruction-like object within a few words. The result is a score between 0 and 1 and the names of the
 matched rules; the score is compared with `injection_threshold`. The detector
 is adapted from the one in the author's
 [vordur](https://github.com/mhcoen/vordur) library, under the same MIT
@@ -779,8 +868,10 @@ so lower `max_tokens` to shorten replies at the source, or raise
 no channel. Create it with the setup script or the app.
 
 **The model is slow the first time.** Ollama loads the model on first use and
-unloads it after `ollama_keep_alive` of inactivity. The default keeps it
-loaded for 30 minutes after each reply.
+unloads it after `ollama_keep_alive` of inactivity. The built-in default keeps
+it loaded for 30 minutes after each reply; the example config uses 24 hours,
+because a cold load costs 10 to 15 seconds on the first reply after a lull and
+reads as the bot having stopped.
 
 ## Development
 
@@ -811,6 +902,7 @@ bot/
   ratelimit.py    token buckets
   utilization.py  channel load monitor
   history.py      bounded channel history
+  storage.py      SQLite conversation snapshots
   jsonlog.py      JSON lines log
   tui.py          Textual monitor
 tests/

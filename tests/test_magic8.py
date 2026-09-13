@@ -45,7 +45,7 @@ async def test_magic8_respects_custom_prefixes(harness):
     h = harness(trigger_prefix="!ai ", command_prefix="!")
     assert await h.say("Alice: !magic8") is Decision.DROP_NO_TRIGGER
     assert await h.say("Alice: !ai !magic8") is Decision.ANSWERED_MAGIC8
-    assert "!magic8: ask fate." in h.cfg.help_pages[0]
+    assert "!magic8 answers yes/no questions." in h.cfg.help_pages[0]
     assert len(h.sent) == 1
 
 
@@ -101,6 +101,9 @@ def test_magic8_cannot_be_shadowed_by_persona():
 
 def test_magic8_help_fits_renamed_radio():
     cfg = make_config(bot_name="Mesh Potato", reply_max_chars=147)
-    assert cfg.help_pages[0].endswith("/magic8: ask fate.")
+    assert cfg.help_pages[0] == (
+        "1/2 Ask me anything, including LoRa questions or how your message reached me. "
+        "/roll rolls dice; /magic8 answers yes/no questions."
+    )
     assert len(cfg.help_pages[0]) <= cfg.reply_max_chars
     assert len(f"Mesh Potato: {cfg.help_pages[0]}".encode()) <= 160

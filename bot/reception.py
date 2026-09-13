@@ -1,6 +1,31 @@
 """Bounded reception facts from this delivered event, never global last-packet stats."""
 
+import re
 from typing import Any
+
+# Only a question about reception gets the reception block. Given the numbers on
+# every message, small models recite them in reply to greetings and remarks.
+_RECEPTION_RE = re.compile(
+    r"\b(?:rssi|snr|dbm|signal report|signal strength|(?:my|the) signal|reception|receiv\w*|"
+    r"(?:how many|how much|no|zero|\d+|my|the) hops?|hop count|copy|copies|(?:get|got|come|came) through|loud and clear|"
+    r"my (?:message|messages|packet|packets|msg|transmission)|hear(?:d|ing)? (?:me|us)|reach(?:ed)? you|"
+    r"directly|direct (?:to you|reception|or (?:via|through|over))|"
+    r"(?:did|do|can|could) (?:you|u|anyone|anybody) (?:get|hear|catch|read|see) (?:me|this|that|it|my))\b",
+    re.I,
+)
+
+# Appended to the persona for a reception question. In the funny voice the joke
+# otherwise wins over the numbers, and a direct message was once described as
+# having hopped through repeaters.
+RECEPTION_VOICE = (
+    "If the message asks how it was received or how strong it was, state the RSSI, SNR and hop count from "
+    "the reception block plainly first, treat a hop count of 0 as a direct reception with no repeater, and "
+    "keep the rest short; if it asks about something else, answer that instead."
+)
+
+
+def asks_about_reception(prompt: str) -> bool:
+    return bool(_RECEPTION_RE.search(prompt))
 
 
 def _measurement(payload: dict[str, Any], key: str, low: float, high: float) -> str:

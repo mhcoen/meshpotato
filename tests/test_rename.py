@@ -59,9 +59,10 @@ def test_package_and_both_cli_entry_points():
     assert project["project"]["scripts"]["meshpotato"] == project["project"]["scripts"]["meshai"] == "bot.cli:main"
 
 
-async def test_new_identity_startup_help_serious_roll_and_loop_guard(clock):
+async def test_new_identity_startup_help_serious_roll_and_loop_guard(clock, tmp_path):
     cfg = config_from_mapping({"port": "/dev/fake", "reply_delay_s": 0,
-                               "global_burst": 10, "sender_burst": 10}, env={})
+                               "global_burst": 10, "sender_burst": 10,
+                               "state_db": str(tmp_path / "state.sqlite3")}, env={})
     h = Harness(cfg, FakeBackend(), clock)
     h.mc.self_info["name"] = cfg.bot_name
     try:

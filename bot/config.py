@@ -13,7 +13,7 @@ import os
 import math
 import tomllib
 from collections.abc import Mapping
-from dataclasses import dataclass, field, fields, replace
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
@@ -47,7 +47,7 @@ class Config:
     # [bot]
     bot_name: str = "Mesh Potato"
     trigger_prefix: str = ""
-    reply_max_chars: int = 147
+    reply_max_chars: int | None = None
     prompt_max_chars: int = 160
     reply_delay_s: float = 8.0
     shorten_retries: int = 2
@@ -95,7 +95,10 @@ class Config:
     queue_wait_s: float = 600.0
 
     # [history]
+    state_db: str = "meshpotato.sqlite3"  # empty disables persistence
+    state_save_interval_s: float = 5.0
     history_size: int = 20
+    history_max_age_s: float = 3600.0
     transcript_max_chars: int = 1500
     person_memory_rounds: int = 20  # answered exchanges remembered per sender name
     person_memory_days: float = 14.0  # rounds older than this are dropped
@@ -116,6 +119,10 @@ class Config:
     # [logging]
     log_file: str = ""
     rx_log: str = "channel"  # "off" | "channel" (packets on the served channel) | "all" (every packet heard)
+
+    def __post_init__(self) -> None:
+        if self.reply_max_chars is None:
+            object.__setattr__(self, "reply_max_chars", WIRE_TEXT_MAX - len(self.bot_name.encode("utf-8")) - 2)
 
     def validate(self) -> "Config":
         errors: list[str] = []
@@ -223,6 +230,10 @@ class Config:
             errors.append("queue_wait_s must be positive")
         if self.person_memory_days <= 0 or self.person_memory_max_chars < 0:
             errors.append("person_memory_days must be positive and person_memory_max_chars not negative")
+        if self.history_max_age_s <= 0 or self.state_save_interval_s <= 0:
+            errors.append("history_max_age_s and state_save_interval_s must be positive")
+        if self.state_db and (not self.state_db.strip() or "\x00" in self.state_db):
+            errors.append("state_db must be a file path or an empty string")
         for name in ("global_burst", "sender_burst", "history_size", "person_memory_rounds", "person_memory_people"):
             if getattr(self, name) < 1:
                 errors.append(f"{name} must be at least 1")
@@ -251,8 +262,9 @@ class Config:
     @property
     def help_pages(self) -> tuple[str, str]:
         return (
-            "1/2 Chat, LoRa settings, reception readings, and per-person memory. "
-            f"{self.command_prefix}{ROLL_COMMAND} rolls dice. {self.command_prefix}{MAGIC8_COMMAND}: ask fate.",
+            "1/2 Ask me anything, including LoRa questions or how your message reached me. "
+            f"{self.command_prefix}{ROLL_COMMAND} rolls dice; "
+            f"{self.command_prefix}{MAGIC8_COMMAND} answers yes/no questions.",
             self.help_message,
         )
 
@@ -272,7 +284,7 @@ def _coerce(name: str, value: Any) -> Any:
         return {str(k): str(v) for k, v in value.items()}
     target = _FIELD_TYPES[name]
     if isinstance(target, str):  # `from __future__ import annotations` leaves strings
-        target = {"str": str, "int": int, "float": float, "bool": bool}[target]
+        target = {"str": str, "int": int, "int | None": int, "float": float, "bool": bool}[target]
     if target is bool:
         if isinstance(value, bool):
             return value
@@ -326,7 +338,7 @@ def config_from_mapping(doc: Mapping[str, Any], env: Mapping[str, str] | None = 
         raw = env.get(ENV_PREFIX + name.upper(), env.get(LEGACY_ENV_PREFIX + name.upper()))
         if raw is not None:
             values[name] = _coerce(name, raw)
-    return replace(Config(), **values).validate()
+    return Config(**values).validate()
 
 
 def load_config(path: str | Path, env: Mapping[str, str] | None = None) -> Config:

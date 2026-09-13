@@ -5,9 +5,13 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import os
 import signal
 import sys
 from collections.abc import Sequence
+from pathlib import Path
+
+import psutil
 
 from meshcore import EventType, MeshCore
 from meshcore.serial_cx import SerialConnection
@@ -26,6 +30,7 @@ from bot.service import BotService, ChannelError
 from bot.fortune import FortuneScheduler
 from bot.utilization import UtilizationMonitor
 from bot.lifecycle import disconnect
+from bot.instance import InstanceError, SingleInstance
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -38,7 +43,9 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="also write meshcore's frame-level debug logging to <log file>.debug (or stderr when headless)",
     )
-    parser.add_argument(
+    actions = parser.add_mutually_exclusive_group()
+    actions.add_argument("--stop", action="store_true", help="stop all your Mesh Potato instances on this computer, then exit")
+    actions.add_argument(
         "--check",
         metavar="LOG",
         help="read a JSON log and report anything the radio heard that the bot never received, then exit",
@@ -270,6 +277,8 @@ async def _run_connected(cfg: Config, service: BotService, headless: bool, log: 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if Path(sys.argv[0]).name == "meshai":
+        print("The command is now meshpotato; meshai is a compatibility alias.", file=sys.stderr)
     if args.check:
         try:
             print(check_log(args.check).render())
@@ -277,6 +286,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"error: log file not found: {args.check}", file=sys.stderr)
             return 1
         return 0
+    if args.stop:
+        try:
+            with SingleInstance() as instance:
+                instance.stop_others()
+            print("Mesh Potato stopped; no other bot instances remain.")
+            return 0
+        except (InstanceError, OSError, psutil.Error) as exc:
+            print(f"process error: {exc}", file=sys.stderr)
+            return 4
     try:
         cfg = load_config(args.config)
     except ConfigError as exc:
@@ -287,6 +305,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     except (ValueError, OSError) as exc:
         print(f"config error: radio references: {exc}", file=sys.stderr)
         return 1
+    try:
+        with SingleInstance() as instance:
+            instance.stop_others()
+            return _main_run(args, cfg, references)
+    except (InstanceError, OSError, psutil.Error) as exc:
+        print(f"process error: {exc}", file=sys.stderr)
+        return 4
+
+
+def _main_run(args, cfg: Config, references: tuple[Reference, ...]) -> int:
     log_path = args.log_file if args.log_file is not None else (cfg.log_file or None)
     if log_path is None and not args.headless:
         log_path = "meshpotato.jsonl"  # the TUI owns the terminal, so stderr is not a usable log target
@@ -303,9 +331,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             root.removeHandler(existing)
         root.addHandler(handler)
     log = EventLog(path=log_path)
+    log.emit("process_start", pid=os.getpid(), config=str(Path(args.config).resolve()))
     try:
         return asyncio.run(run(cfg, headless=args.headless, log=log, references=references))
     finally:
+        log.emit("process_stop", pid=os.getpid())
         log.close()
 
 
