@@ -150,6 +150,7 @@ Sports questions also recognize standings and schedules:
 | "What place are the Brewers in?" / "Where do the Cubs stand?" | Current division position and win-loss record |
 | "How are the Packers doing?" / "Brewers record?" | Season standing and record; add "in the game" for the score |
 | "Who's leading the NL Central?" / "Who leads the AFC North?" | A leader in that division's standings, with ties identified |
+| "Who's leading the American League?" / "Who leads the NL?" | A leader across the named baseball league, with ties identified |
 | "How many games behind are the Cubs?" / "How far back are the Brewers?" | The provider's games-behind figure and position |
 | "When do the Brewers play next?" / "Who are the Bucks playing next?" | Opponent, home/away order, date and local start time |
 | "Did the Brewers win?" / "Are the Packers winning?" | The dated game's actual score and status |

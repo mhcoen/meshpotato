@@ -231,3 +231,51 @@ async def test_forget_during_sports_retrieval_prevents_context_restoration(harne
     assert h.service._requests[task].remember is False
     finish.set();await task
     assert not h.service._sports_context
+
+
+@pytest.mark.parametrize('scope,label', [
+    ('American League','AL'), ('National League','NL'), ('AL','AL'), ('NL','NL'),
+])
+async def test_baseball_league_leader_routes_through_service(scope,label,harness,service_clock):
+    query=f"Who's leading the {scope}?"
+    assert sports_kind(query)=='leader'
+    urls=[]
+    def fetch(url):
+        urls.append(url)
+        if '/standings?' not in url:
+            return fixture_fetch(url)
+        assert parse_qs(urlsplit(url).query)['level']==['2']
+        data=feed('mlb')
+        # Combine the captured division rows into unsorted conference tables.
+        data['children']=[{'name':name, 'standings':{'entries':[
+            row for group in reversed(data['children']) if group['name'].startswith(name)
+            for row in reversed(group['standings']['entries'])]}}
+            for name in ('American League','National League')]
+        return data
+    async def lookup(prompt):
+        return details.collect_details(prompt,fetch,NOW)
+    h=harness(web_enabled=True)
+    h.service.web.search=AsyncMock(side_effect=lookup)
+    assert await h.say('Michael: '+query) is Decision.ANSWERED
+    assert f'1st in {label},' in h.sent[0][1]
+    assert '(ESPN' in h.sent[0][1]
+    assert not h.backend.calls
+    assert all('/baseball/mlb/' in url for url in urls)
+
+
+@pytest.mark.parametrize('query', ["Who's leading the book club?", "Who's leading the Justice League?"])
+def test_generic_league_word_does_not_trigger_sports(query):
+    assert sports_kind(query) is None
+
+
+@pytest.mark.parametrize('scope', ['National League', 'NL'])
+def test_league_gap_uses_group_scope_even_for_abbreviated_queries(scope):
+    p=standing()
+    p['group']['name']='National League'
+    # Both teams lead their own division; only the conference metric describes
+    # the distance between them in this combined table.
+    for row in p['group']['standings']['entries']:
+        for stat in row['stats']:
+            if stat['name']=='divisionGamesBehind': stat['value']=0
+    answer,evidence=sports_answer([p],f"Who's leading the {scope}?",NOW,140)
+    assert evidence and '; lead by 10 games' in answer
