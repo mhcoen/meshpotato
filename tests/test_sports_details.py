@@ -18,6 +18,8 @@ def team(ident, name, city, abbr):
             "displayName": f"{city} {name}", "shortDisplayName": name}
 
 
+SEASON = {"year": 2026, "startDate": "2026-02-19T08:00Z", "endDate": "2026-11-12T07:59Z"}
+
 BREWERS = team("8", "Brewers", "Milwaukee", "MIL")
 CUBS = team("16", "Cubs", "Chicago", "CHC")
 REDS = team("17", "Reds", "Cincinnati", "CIN")
@@ -35,7 +37,7 @@ def group():
 
 
 def standing():
-    return {"sports_detail": "standings", "league": "mlb", "season": 2026,
+    return {"sports_detail": "standings", "league": "mlb", "season": 2026, "season_info": SEASON,
             "group": group(), "fetched_at": NOW.isoformat()}
 
 
@@ -58,7 +60,7 @@ def next_page(e=None):
     ("How are the Packers doing?", "overview"), ("How are the Packers doing in the game?", "score"),
     ("Who's leading the division?", "leader"), ("Who leads the NL Central?", "leader"),
     ("How many games behind are the Cubs?", "behind"), ("How far back are the Brewers?", "behind"),
-    ("When do they play next?", "next"), ("When do the Brewers play?", "next"),
+    ("When do the Brewers play?", "next"),
     ("Who are the Bucks playing next?", "next"), ("Packers next game?", "next"),
     ("Did the Brewers win?", "score"), ("Who won Packers?", "score"), ("Are the Brewers winning?", "score"),
 ])
@@ -95,7 +97,6 @@ def test_real_stat_semantics_and_division_order(query, expected):
 @pytest.mark.parametrize("mutation", [
     lambda p: p.update(season=2027),
     lambda p: p.update(fetched_at=(NOW-timedelta(seconds=61)).isoformat()),
-    lambda p: p["group"]["standings"]["entries"].reverse(),
     lambda p: p["group"]["standings"]["entries"][0]["stats"][0].update(value="NaN"),
     lambda p: p["group"]["standings"]["entries"][0]["stats"][0].update(value=True),
     lambda p: p["group"]["standings"]["entries"][0]["stats"].append({"name":"wins", "value": 99}),
@@ -117,7 +118,7 @@ def fake_fetch(url):
         return {"sports": [{"leagues": [{"slug":league,"teams": [{"team":t} for t in (BREWERS,CUBS,REDS)] if league=="mlb" else []}]}]}
     if "/standings?" in url:
         assert "season=2026" in url and "level=3" in url
-        return {"season":{"year":2026},"children":[group()]}
+        return {"season":SEASON,"children":[group()]}
     if "/teams/8" in url:
         return {"team": {**BREWERS,"nextEvent":[scheduled()]}}
     raise AssertionError(url)
@@ -215,10 +216,10 @@ async def test_followup_context_is_per_sender_and_expires(harness,service_clock,
     h.service.web.search=AsyncMock(side_effect=[[standing()],[],[]])
     await h.say("Michael: Brewers standings?")
     await h.say("Alice: When do they play next?")
-    assert "Brewers" not in h.service.web.search.call_args.args[0]
+    assert h.service.web.search.await_count == 1
     clock.advance(601)
     await h.say("Michael: When do they play next?")
-    assert "Brewers" not in h.service.web.search.call_args.args[0]
+    assert h.service.web.search.await_count == 1
 
 
 async def test_forget_clears_followup_context(harness,service_clock):

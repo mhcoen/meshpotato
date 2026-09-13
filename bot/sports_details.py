@@ -7,10 +7,10 @@ from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 
 from bot.sports import (LEAGUES, MAX_AGE_S, CLARIFY, _name, _team, _team_source, _time,
-                        local_now, matches, parse_event, selected_leagues, team_context, words)
+                        local_now, matches, match_strength, parse_event, selected_leagues, words)
 from bot.sports_queries import sports_kind
 
-UNAVAILABLE = "I couldn't verify that from ESPN; include the team or division and league."
+UNAVAILABLE = "I couldn't verify current sports information from ESPN."
 
 
 def season_year(league, now):
@@ -22,11 +22,18 @@ def season_year(league, now):
 
 
 def _leagues(query):
-    if re.search(r"\b(?:nfc|afc)\b", query, re.I):
+    if re.search(r"\b(?:nfc|afc|national football conference|american football conference)\b", query, re.I):
         return ["nfl"]
-    if re.search(r"\b(?:nl|al)\b", query, re.I):
+    if re.search(r"\b(?:nl|al|national league|american league)\b", query, re.I):
         return ["mlb"]
     return selected_leagues(query)
+
+
+def active_season(season, now):
+    """A recent fetch does not make a completed season current."""
+    start, end = _time(season["startDate"]), _time(season["endDate"])
+    return (type(season["year"]) is int and start <= now <= end
+            and timedelta(0) < end - start < timedelta(days=550))
 
 
 def resolve_teams(query, fetch):
@@ -47,7 +54,9 @@ def resolve_teams(query, fetch):
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
         results = list(pool.map(identify, _leagues(query)))
     errors = [error for _, error in results if error]
-    return [item for found, _ in results for item in found], errors
+    found = [item for matches_, _ in results for item in matches_]
+    best = max((match_strength(_team({"team": t}), query) for _, t in found), default=0)
+    return [item for item in found if match_strength(_team({"team": item[1]}), query) == best], errors
 
 
 def label(group, league):
@@ -60,7 +69,7 @@ def label(group, league):
 
 def group_matches(group, league, query):
     return any(" " + words(value) + " " in " " + words(query) + " "
-               for value in (group["name"], label(group, league), group.get("abbreviation", "")) if value)
+               for value in (group["name"], label(group, league)) if value)
 
 
 def groups(data, depth=0):
@@ -72,18 +81,26 @@ def groups(data, depth=0):
         yield from groups(child, depth+1)
 
 
-STAT_NAMES = {"wins", "losses", "ties", "OTLosses", "points", "winPercent", "gamesBehind", "divisionGamesBehind"}
+OT_NAMES = {"OTLosses", "otLosses", "overtimeLosses"}
+STAT_NAMES = {"wins", "losses", "ties", "points", "winPercent", "gamesBehind", "divisionGamesBehind"} | OT_NAMES
 
 
 def stats(row, league):
     result = {}
     for stat in row["stats"]:
         name = stat["name"]
-        if name not in STAT_NAMES or (name == "points" and league != "nhl"):
+        if name not in STAT_NAMES or (league != "nhl" and (name == "points" or name in OT_NAMES)):
             continue
-        if name in result or isinstance(stat.get("value"), bool):
+        if isinstance(stat.get("value"), bool):
             raise ValueError("duplicate or invalid statistic")
+        original_name = name
+        if name in OT_NAMES:
+            name = "OTLosses"
         value = Decimal(str(stat["value"]))
+        if name in result:
+            if original_name in OT_NAMES and value == result[name]:
+                continue  # ESPN supplies both aliases in the same NHL row.
+            raise ValueError("conflicting or duplicate statistic")
         if not value.is_finite() or not 0 <= value <= 1000:
             raise ValueError("invalid statistic")
         if name in {"wins", "losses", "ties", "OTLosses", "points"} and value != int(value):
@@ -113,17 +130,23 @@ def _number(value):
 
 def _standings_answer(page, query, now, available):
     league, group = page["league"], page["group"]
-    if league not in _leagues(query) or page["season"] != season_year(league, now):
+    if league not in _leagues(query) or not active_season(page["season_info"], now) or page["season"] != page["season_info"]["year"]:
         return UNAVAILABLE, None
     rows = group["standings"]["entries"]
     if not 1 <= len(rows) <= 40 or len({r["team"]["id"] for r in rows}) != len(rows):
         return UNAVAILABLE, None
     teams, values = [_team(r) for r in rows], [stats(r, league) for r in rows]
     primary = "points" if league == "nhl" else "winPercent"
-    order = [s[primary] for s in values]
-    if order != sorted(order, reverse=True) or not any(s["wins"] + s["losses"] for s in values):
-        return UNAVAILABLE, None
-    if re.search(r"\b(?:nl|al|nfc|afc)\s+(?:east|west|central|north|south)\b", query, re.I) and not group_matches(group, league, query):
+    # Feed array order is not a rank (NBA and conference tables are unsorted).
+    # Sort only within the selected group. Equal statistical keys share a rank;
+    # this does not pretend to implement each league's playoff tiebreakers.
+    division = "division" in group["name"].lower() or not re.search(r"conference|\bleague\b", query, re.I)
+    def rank_key(s):
+        gb = "divisionGamesBehind" if division and "divisionGamesBehind" in s else "gamesBehind"
+        return (-s[primary], s.get(gb, Decimal(0))) if league != "nhl" else (-s[primary],)
+    ranked = sorted(zip(teams, values), key=lambda pair: rank_key(pair[1]))
+    teams, values = map(list, zip(*ranked))
+    if re.search(r"\b(?:nl|al|nfc|afc)\s+(?:east|west|central|north|south)\b|\b(?:eastern|western) conference\b|\b(?:national|american) league\b", query, re.I) and not group_matches(group, league, query):
         return UNAVAILABLE, None
     indexes = [i for i, t in enumerate(teams) if matches(t, query)]
     kind = sports_kind(query)
@@ -141,24 +164,26 @@ def _standings_answer(page, query, now, available):
         record += f"-{int(s['OTLosses'])}"
     elif s.get("ties", 0):
         record += f"-{int(s['ties'])}"
-    # Position is the provider's order within this explicitly named group,
-    # never its conference playoffSeed value masquerading as a division rank.
-    division = not re.search(r"conference|\bleague\b", query, re.I)
+    position = 1 + sum(rank_key(other) < rank_key(s) for other in values)
+    tied = sum(rank_key(other) == rank_key(s) for other in values) > 1
     gb_key = "divisionGamesBehind" if division and "divisionGamesBehind" in s else "gamesBehind"
     gap = ""
-    if gb_key in s:
+    if league == "nhl":
+        gap = f"; {int(s['points'])} points"
+    elif gb_key in s:
         if index == 0 and len(values) > 1 and gb_key in values[1]:
             gap = "; tied for lead" if values[1][gb_key] == 0 else f"; lead by {_number(values[1][gb_key])} games"
         elif s[gb_key] > 0:
             gap = f"; {_number(s[gb_key])} games behind"
         else:
             gap = "; tied for lead"
-    elif league == "nhl":
-        gap = f"; {int(s['points'])} points"
     elif kind == "behind":
         gap = "; games-behind unavailable"
     for key in ("short", "abbreviation"):
-        line = f"{teams[index][key]}: listed {_ordinal(index+1)} in {label(group, league)}, {record}{gap} (ESPN {now:%m/%d})."
+        place = f"{'tied' if tied else 'listed'} {_ordinal(position)}"
+        line = f"{teams[index][key]}: {place} in {label(group, league)}, {record}{gap} (ESPN {now:%m/%d})."
+        if s["wins"] + s["losses"] + s.get("ties", 0) + s.get("OTLosses", 0) == 0:
+            line = f"{teams[index][key]}: no completed games recorded this season, {record} (ESPN {now:%m/%d})."
         if len(line) <= available:
             return line, {"league": league, "fetched_at": page["fetched_at"], "url": f"https://www.espn.com/{league}/standings",
                           "team_context": {"team": teams[index]["display"], "league": league}}
@@ -241,10 +266,21 @@ def collect_details(query, fetch, now=None):
     if any(int(y) != season for y in years):
         return []
     level = 2 if re.search(r"\bconference\b|\b(?:national|american) league\b", query, re.I) and not re.search(r"\b(?:east|west|central|north|south)\b", query, re.I) else 3
-    data = fetch(f"https://site.api.espn.com/apis/v2/sports/{LEAGUES[league]}/{league}/standings?season={season}&level={level}")
     try:
+        def table(year):
+            return fetch(f"https://site.api.espn.com/apis/v2/sports/{LEAGUES[league]}/{league}/standings?season={year}&level={level}")
+        data = table(season)
         if data["season"]["year"] != season:
             return []
+        if not active_season(data["season"], now):
+            # Calendar heuristics can miss a league's exact opening date.
+            # Check the adjacent season, still inside the parent's retrieval cap.
+            season += 1 if now > _time(data["season"]["endDate"]) else -1
+            if years and any(int(y) != season for y in years):
+                return []
+            data = table(season)
+            if data["season"]["year"] != season or not active_season(data["season"], now):
+                return []
         packets = []
         for group in groups(data):
             if teams:
@@ -253,8 +289,9 @@ def collect_details(query, fetch, now=None):
             elif not group_matches(group, league, query):
                 continue
             packet = {"sports_detail": "standings", "league": league, "season": season,
+                      "season_info": {k: data["season"][k] for k in ("year", "startDate", "endDate")},
                       "group": _compact_group(group), "fetched_at": now.isoformat()}
-            if _standings_answer(packet, query, now, 147)[1]:
+            if _standings_answer(packet, query, now, 1000)[1]:
                 packets.append(packet)
         return packets[:3]
     except (KeyError, TypeError, ValueError, AttributeError, InvalidOperation):
@@ -270,7 +307,7 @@ def _collect_next(query, teams, fetch, now):
         for event in events:
             try:
                 packet = _event_packet(event, league, team, now)
-                if _next_answer(packet, query, now, 147)[1]:
+                if _next_answer(packet, query, now, 1000)[1]:
                     packets.append(packet)
             except (KeyError, TypeError, ValueError, AttributeError, IndexError):
                 continue
@@ -285,9 +322,9 @@ def _collect_next(query, teams, fetch, now):
     def daily(offset):
         day = now.date() + timedelta(days=offset)
         return fetch(f"https://site.api.espn.com/apis/site/v2/sports/{LEAGUES[league]}/{league}/scoreboard?dates={day:%Y%m%d}&limit=100")
-    for start in range(-1, 14, 3):
+    for start in range(-1, 15, 3):
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
-            results = list(pool.map(daily, range(start, min(start+3, 14))))
+            results = list(pool.map(daily, range(start, min(start+3, 15))))
         if any(not isinstance(d.get("events"), list) or not any(l.get("slug") == league for l in d.get("leagues", [])) for d in results):
             return [{"sports_error": f"{league}: next-game coverage incomplete"}]
         found = choose([e for d in results for e in d["events"]])

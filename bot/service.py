@@ -135,6 +135,7 @@ class PendingReply:
     web_prompt: str = ""
     web_fixed: bool = False
     sports_expires_at: float | None = None
+    sports_team: dict | None = None
 
 
 @dataclass
@@ -600,14 +601,16 @@ class BotService:
         available = reply_body_room(parsed.sender, cfg.reply_max_chars, self._reply_max_bytes)
         if available < max(len(cfg.apology), len(cfg.too_long_reply)):
             return self._record(parsed, path_len, Decision.DROP_EMPTY, reason="sender-name leaves no room for fixed replies")
-        if self._clock() < self._backend_retry_at and not (cfg.web_enabled and is_sports_query(prompt)):
+        if self._clock() < self._backend_retry_at and not (cfg.web_enabled and is_sports_query(self._sports_prompt(parsed.sender, prompt))):
             return self._record(parsed, path_len, Decision.DROP_MODEL_UNAVAILABLE, reason="model cooldown")
         # 6. Keep the ingestion transcript snapshot, but read memory again after
         # waiting so earlier answers and /forget are reflected in this request.
         limit = await self._wait_for_admission(parsed.sender, received_at)
         if not limit.allowed:
             return self._queue_drop(parsed, path_len, limit.reason)
-        if self._clock() < self._backend_retry_at and not (cfg.web_enabled and is_sports_query(prompt)):
+        lookup_prompt = self._sports_prompt(parsed.sender, prompt)
+        sports = is_sports_query(lookup_prompt)
+        if self._clock() < self._backend_retry_at and not (cfg.web_enabled and sports):
             return self._record(parsed, path_len, Decision.DROP_MODEL_UNAVAILABLE, reason="model cooldown")
         state = self._requests[asyncio.current_task()]
         if state.direct_reply and self._direct_replies.get(parsed.sender, 0) >= 2:
@@ -626,7 +629,7 @@ class BotService:
             self.facts if radio_prompt else self._general_facts, memory_block,
             reference, reception, may_pass=implicit,
         )
-        if explicit_web or (cfg.web_enabled and needs_web(prompt) and not reception):
+        if explicit_web or (cfg.web_enabled and (sports or needs_web(prompt)) and not reception):
             loop = asyncio.get_running_loop()
             state.generation_deadline = loop.time() + cfg.model_timeout_s
             state.web_sources = []
@@ -637,15 +640,12 @@ class BotService:
                 state.web_failure = USAGE.replace("/web", cfg.command_prefix + WEB_COMMAND)
             else:
                 now = datetime.now().astimezone()
-                prior = self._sports_context.get(parsed.sender)
-                context = prior[0] if prior and self._clock() - prior[1] <= 600 else None
-                lookup_prompt = with_team_context(prompt, context) if is_sports_query(prompt) else prompt
                 query = search_query(lookup_prompt, cfg.web_location, now)
                 state.web_started = True
                 state.web_prompt = query
-                sports = is_sports_query(prompt)
                 if sports:
-                    state.web_failure = sports_failure(prompt)
+                    self._sports_context.pop(parsed.sender, None)
+                    state.web_failure = sports_failure(lookup_prompt)
                 # Only this question and configured location leave the machine;
                 # no sender identity, conversation history, or radio credentials.
                 self._check(query, "web-query")
@@ -659,13 +659,7 @@ class BotService:
                             fetched = datetime.fromisoformat(evidence["fetched_at"])
                             age = (datetime.now().astimezone() - fetched).total_seconds()
                             state.sports_expires_at = self._clock() + max(0, MAX_AGE_S - age)
-                            if evidence.get("team_context"):
-                                self._sports_context[parsed.sender] = (evidence["team_context"], self._clock())
-                                self._sports_context.move_to_end(parsed.sender)
-                                while len(self._sports_context) > cfg.person_memory_people:
-                                    self._sports_context.popitem(last=False)
-                            else:
-                                self._sports_context.pop(parsed.sender, None)
+                            state.sports_team = evidence.get("team_context")
                         self.log.emit("sports_lookup", outcome="answer" if evidence else "unverified",
                                       errors=[p["sports_error"] for p in pages if isinstance(p.get("sports_error"), str)],
                                       **(evidence or {}))
@@ -801,6 +795,11 @@ class BotService:
         decision = Decision.ANSWERED_FALLBACK if fallback else Decision.ANSWERED
         if await self._send(reply, mention_sender=parsed.sender):
             self.stats.replies_sent += 1
+            if state.sports_team and state.remember and state.sports_expires_at is not None:
+                self._sports_context[parsed.sender] = (state.sports_team, self._clock())
+                self._sports_context.move_to_end(parsed.sender)
+                while len(self._sports_context) > cfg.person_memory_people:
+                    self._sports_context.popitem(last=False)
             if not fallback and self._requests[asyncio.current_task()].remember:
                 self.memory.record(parsed.sender, prompt, shaped, source_prompt=parsed.body)
                 self._update_memory_stats()
@@ -810,6 +809,11 @@ class BotService:
         return self._record(parsed, path_len, Decision.DROP_SEND_FAILED, reply=reply, latency_ms=latency_ms)
 
     # ------------------------------------------------------------------ helpers
+
+    def _sports_prompt(self, sender: str, prompt: str) -> str:
+        prior = self._sports_context.get(sender)
+        context = prior[0] if prior and self._clock() - prior[1] <= 600 else None
+        return with_team_context(prompt, context)
 
     @asynccontextmanager
     async def _request(self, sender: str, can_send: Callable[[], bool] = lambda: True):

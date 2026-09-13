@@ -149,14 +149,19 @@ Sports questions also recognize standings and schedules:
 | --- | --- |
 | "What place are the Brewers in?" / "Where do the Cubs stand?" | Current division position and win-loss record |
 | "How are the Packers doing?" / "Brewers record?" | Season standing and record; add "in the game" for the score |
-| "Who's leading the NL Central?" / "Who leads the Packers' division?" | The first team listed in that division's standings |
+| "Who's leading the NL Central?" / "Who leads the AFC North?" | A leader in that division's standings, with ties identified |
 | "How many games behind are the Cubs?" / "How far back are the Brewers?" | The provider's games-behind figure and position |
 | "When do the Brewers play next?" / "Who are the Bucks playing next?" | Opponent, home/away order, date and local start time |
 | "Did the Brewers win?" / "Are the Packers winning?" | The dated game's actual score and status |
 
-Standings use the current season and the named group: a conference playoff seed
-is never presented as a division position. Replies say "listed" because tied
-records can have an official ordering. Games-behind figures are included when
+Standings use the named division or conference. For example, "What place are the
+Brewers in the National League?" uses the whole NL table. Position is calculated
+from win percentage (hockey points), then games behind when supplied for that
+group. Equal statistical positions say "tied"; the bot does not claim to resolve
+official playoff tiebreakers or present a conference playoff seed as a division
+position. The feed's season dates must include today; an offseason final table
+is not presented as current. A team with no completed games recorded gets that
+notice instead of an artificial position or games-behind figure. Games-behind figures are included when
 the feed supplies them; hockey uses points, and missing metrics are identified
 instead of calculated from unrelated fields. Historical standings snapshots are
 not supported. Next-game answers require a future scheduled game with a confirmed
@@ -164,13 +169,17 @@ start time. If the provider's compact next-game field still names a finished
 game, the bot checks small daily scoreboards for the next two weeks, staying
 within the same retrieval budget. It refuses an unverified time or opponent.
 
-After a successful team lookup, the same sender can ask "When do they play next?"
+After a successfully sent team answer, the same sender can ask "When do they play next?"
 or "Who's leading the division?" for ten minutes. Explicit team or division names
-take precedence. Without a clear team, the bot asks for clarification; it does
-not borrow another sender's topic. This short sports context is held only in
-memory, is bounded by `person_memory_people`, and is cleared by `/forget`.
+take precedence. Pronouns alone do not trigger sports lookup without that context.
+Explicit sports questions without a clear team ask for clarification. The bot
+does not borrow another sender's topic. This short sports context is held only in
+memory, is bounded by `person_memory_people`, and is cleared by `/forget` or an
+unsuccessful sports lookup. Failed sends do not establish a new team context.
 Ordinary questions such as "How is Michael doing?" or "What is a standing wave?"
-remain ordinary conversation.
+remain ordinary conversation. Common-word nicknames such as Heat or Sun need
+capitalization, a full team name, or a sports term such as NBA. Abbreviations such
+as NO or MIN must be uppercase so ordinary words do not identify another team.
 
 Score requests default to games dated today in the bot computer's timezone.
 You can specify `yesterday`, `tomorrow`, or an ISO date such as
