@@ -363,6 +363,12 @@ def config_from_mapping(doc: Mapping[str, Any], env: Mapping[str, str] | None = 
         raw = env.get(ENV_PREFIX + name.upper(), env.get(LEGACY_ENV_PREFIX + name.upper()))
         if raw is not None:
             values[name] = _coerce(name, raw)
+    # Older shipped configs predate the relay rule. Migrate only their opening
+    # instruction, then validate the entire resulting prompt normally.
+    legacy_opening = "Write today's fortune for everyone on the channel"
+    prompt = values.get("fortune_prompt", "")
+    if prompt.startswith(legacy_opening):
+        values["fortune_prompt"] = "Write today's fortune for the channel" + prompt[len(legacy_opening):]
     return Config(**values).validate()
 
 

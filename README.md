@@ -883,9 +883,11 @@ The monitor shows the next slot and the counts.
 
 When fortunes are enabled, the formatted fortune prompt is checked at startup; if the injection gate
 blocks it, startup reports a configuration error instead of silently skipping
-the daily fortune. When upgrading an older configuration, change
-`Write today's fortune for everyone on the channel` to
-`Write today's fortune for the channel`, as in `config.example.toml`.
+the daily fortune. Older configurations whose fortune prompt starts with
+`Write today's fortune for everyone on the channel` are automatically loaded
+with `Write today's fortune for the channel` instead. You can pull the update
+and restart without editing `config.toml`; the file is left unchanged. The
+complete prompt still passes through the injection gate after this migration.
 
 ## Security
 
