@@ -2,7 +2,7 @@
 
 import asyncio
 
-from bot.personas import BUILTIN_PERSONAS, build_help, parse_command
+from bot.personas import BUILTIN_PERSONAS, parse_command
 from bot.service import Decision
 from tests.conftest import FakeBackend
 
@@ -14,12 +14,6 @@ def test_parse_command_prefix_and_case():
     assert parse_command("marvin", "/") is None
     assert parse_command("/", "/") is None
     assert parse_command("!marvin", "!") == "marvin"
-
-
-def test_help_line_lists_every_persona_and_the_timeout():
-    line = build_help(["funny", "marvin"], 120, "/")
-    assert line == "2/2 /funny /marvin: voice for 120 min; /reset resets; /forget forgets you."
-    assert build_help(["a"], 90.5, "/").startswith("2/2 /a: voice for 90.5 min")
 
 
 def test_builtin_presets_carry_the_safety_clauses():
@@ -41,13 +35,13 @@ async def test_switch_is_silent_and_changes_the_system_prompt(harness):
     assert [e.line() for e in h.history.entries()][0] == "Alice: /marvin"  # commands stay in history
 
 
-async def test_help_has_two_pages_unknown_command_has_one_hint(harness):
+async def test_help_has_one_index_unknown_command_has_one_hint(harness):
     h = harness(global_burst=5, sender_burst=5)
     assert await h.say("Alice: /help") is Decision.ANSWERED_HELP
     assert h.sent[-1] == (1, h.cfg.help_message)
     assert await h.say("Bob: /dance") is Decision.ANSWERED_HELP
     assert h.sent[-1] == (1, "Unknown command; try /help.")
-    assert h.sent == [(1, page) for page in h.cfg.help_pages] + [(1, "Unknown command; try /help.")]
+    assert h.sent == [(1, h.cfg.help_message)] + [(1, "Unknown command; try /help.")]
     assert h.backend.calls == []
     assert h.inbound_records()[-1]["command"] == "dance"
 

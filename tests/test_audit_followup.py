@@ -92,11 +92,11 @@ async def test_reply_button_can_also_include_configured_trigger(harness):
     assert "\n!ai What" not in h.backend.calls[0][1]["content"]
 
 
-async def test_direct_help_pages_count_as_one_exchange(harness):
+async def test_direct_help_counts_as_one_exchange(harness):
     h = harness(global_burst=10, sender_burst=10)
     assert await h.say("Alice: @[MeshAI] What is two plus two?") is Decision.ANSWERED
     assert await h.say("Alice: @[MeshAI] /help") is Decision.ANSWERED_HELP
-    assert h.sent[1:] == [(1, page) for page in h.cfg.help_pages]
+    assert h.sent[1:] == [(1, h.cfg.help_message)]
     assert h.service._direct_replies["Alice"] == 2
 
 

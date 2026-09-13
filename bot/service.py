@@ -1194,7 +1194,7 @@ class BotService:
             text = "Forgotten." if had else "I had nothing on you."
             decision = Decision.ANSWERED_FORGET
         else:
-            return await self._send_help(parsed, path_len, command, received_at)
+            return await self._send_help(parsed, path_len, command, received_at, arguments)
         reply = compose_reply(parsed.sender, text, cfg.reply_max_chars, max_bytes=self._reply_max_bytes)
         if reply is None:
             return self._record(parsed, path_len, Decision.DROP_EMPTY, command=command)
@@ -1208,45 +1208,27 @@ class BotService:
             return self._record(parsed, path_len, decision, reply=reply, held_ms=held_ms, command=command)
         return self._record(parsed, path_len, Decision.DROP_SEND_FAILED, reply=reply, command=command)
 
-    async def _send_help(self, parsed, path_len, command: str, received_at: float) -> Decision:
-        # Fit and gate both pages before reserving even the first token.
-        replies = self.cfg.help_pages  # public help, with no sender mention
+    async def _send_help(self, parsed, path_len, command: str, received_at: float,
+                         arguments: str = "") -> Decision:
+        # Public help: one selected display, one admission, no sender mention.
+        topic = arguments.strip().lower()
+        reply = self.cfg.help_topics.get(topic, self.cfg.help_message)
         if command != HELP_COMMAND:
-            replies = (f"Unknown command; try {self.cfg.trigger_prefix}{self.cfg.command_prefix}{HELP_COMMAND}.",)
-        if any(len(reply) > self.cfg.reply_max_chars or len(reply.encode("utf-8")) > self._reply_max_bytes
-               for reply in replies):
+            reply = f"Unknown command; try {self.cfg.trigger_prefix}{self.cfg.command_prefix}{HELP_COMMAND}."
+        if len(reply) > self.cfg.reply_max_chars or len(reply.encode("utf-8")) > self._reply_max_bytes:
             return self._record(parsed, path_len, Decision.DROP_EMPTY, command=command)
-        for reply in replies:
-            self._check(reply, "reply")
+        self._check(reply, "reply")
         limit = await self._wait_for_admission(parsed.sender, received_at)
         if not limit.allowed:
             return self._queue_drop(parsed, path_len, limit.reason, command=command)
         await self._hold_for_quiet_channel(received_at)
-        for index, reply in enumerate(replies):
-            if index:
-                # Keep ownership of this admitted request so another handler cannot
-                # interleave a reply. Page one committed its token; page two needs
-                # a fresh global AND sender reservation. Do not rejoin our own FIFO.
-                state = self._requests[asyncio.current_task()]
-                deadline = self._clock() + self.cfg.queue_wait_s
-                while True:
-                    if self._stopped:
-                        raise asyncio.CancelledError()
-                    self._check(reply, "reply")
-                    if self._clock() >= deadline:
-                        self.stats.queue_expired += 1
-                        return self._queue_drop(parsed, path_len, "queue-expired",
-                                                command=command, pages_sent=index)
-                    state.reservation = self.limiter.reserve(parsed.sender)
-                    if state.reservation.allowed:
-                        break
-                    await asyncio.sleep(min(self.queue_tick_s, deadline - self._clock()))
-            if not await self._send(reply):
-                return self._record(parsed, path_len, Decision.DROP_SEND_FAILED,
-                                    command=command, pages_sent=index, reply=reply)
-            self.stats.replies_sent += 1
+        if not await self._send(reply):
+            return self._record(parsed, path_len, Decision.DROP_SEND_FAILED,
+                                command=command, pages_sent=0, reply=reply)
+        self.stats.replies_sent += 1
         return self._record(parsed, path_len, Decision.ANSWERED_HELP,
-                            command=command, pages_sent=len(replies), reply=" | ".join(replies))
+                            command=command, topic=topic if topic in self.cfg.help_topics else "index",
+                            pages_sent=1, reply=reply)
 
     def _switch_persona(self, name: str) -> None:
         """Activate a preset. The default carries no timer; anything else reverts after the timeout."""
