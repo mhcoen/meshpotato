@@ -5,6 +5,7 @@ import tomllib
 from pathlib import Path
 
 import pytest
+import httpx
 
 from bot import __version__
 from bot.backends import make_backend
@@ -43,11 +44,23 @@ def test_new_environment_overrides_legacy_environment_and_toml():
     ({"MESHAI_OPENAI_API_KEY": "legacy-test", "MESHPOTATO_OPENAI_API_KEY": "new-test"}, "Bearer new-test"),
     ({"MESHAI_OPENAI_API_KEY": "legacy-test", "MESHPOTATO_OPENAI_API_KEY": ""}, None),
 ])
-async def test_api_key_migration_precedence(env, expected):
+async def test_api_key_migration_precedence(env, expected, monkeypatch):
+    seen = []
+
+    def respond(request):
+        seen.append(request.headers.get("Authorization"))
+        return httpx.Response(200, json={"choices": [{"message": {"content": "Four."}}]})
+
+    client_type = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: client_type(
+        **kwargs, transport=httpx.MockTransport(respond)
+    ))
     cfg = config_from_mapping({"port": "/dev/fake", "backend": "openai"}, env={})
     backend = make_backend(cfg, env=env)
     try:
         assert backend._client.headers.get("Authorization") == expected
+        await backend.complete([{"role": "user", "content": "What is two plus two?"}])
+        assert seen == [expected]
     finally:
         await backend.aclose()
 

@@ -173,6 +173,15 @@ def personal_jab(body: str) -> str | None:
     return None
 
 
+def third_party_jab(body: str) -> str | None:
+    """Refuse direct defamatory/insulting predicates even about someone else."""
+    match = re.search(
+        r"\b(?:[a-z][a-z'-]*\s+){1,4}(?:is|are|was|were)\s+"
+        r"(?:(?:a|an|the|total|complete|lying|real)\s+)*"
+        r"(?:fraud|liar|idiot|scammer|criminal|thief|thieves|moron|crook)\b", body, re.I)
+    return match[0] if match else None
+
+
 def normalize(text: str) -> str:
     return " ".join(_NORMALIZE_RE.sub(" ", text.lower()).split())
 
@@ -262,7 +271,7 @@ def reply_problem(body: str, prompt: str, same_sender: list[str], other_senders:
     earlier = find_repeat(body, same_sender, other_senders)
     if earlier is not None:
         return Problem("repeat", earlier)
-    jab = personal_jab(body)
+    jab = personal_jab(body) or third_party_jab(body)
     if jab is not None:
         return Problem("personal-jab", jab)
     if not radio_prompt:
@@ -283,8 +292,8 @@ def nudge(problem: Problem) -> str:
         return (f"The message is a question or request to you, so {PASS_WORD} is not allowed. Answer it; "
                 "if you cannot, say so in a few words.")
     if problem.kind == "personal-jab":
-        return (f"Your reply made fun of the person asking ({problem.text}). Keep the voice, but aim any joke at the "
-                "question, the weather, or yourself, never at the person, and answer again.")
+        return (f"Your reply insulted a person ({problem.text}). Keep the voice, but aim any joke at the "
+                "question, the weather, or yourself, never at anyone, and answer again.")
     if problem.kind == "radio-metaphor":
         return (f"Your reply used radio imagery ({problem.text}) and the message is not about radio. Answer it again "
                 "with no radio, signal, static, antenna or Wi-Fi imagery at all.")

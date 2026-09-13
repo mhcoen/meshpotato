@@ -6,7 +6,7 @@
 
 A chat bot for a [MeshCore](https://meshcore.co.uk) channel. Mesh Potato runs on a
 computer with a MeshCore companion radio on USB, listens on one channel,
-sends each message to a language model running on the same computer, and
+answers questions using a language model running on the same computer, and
 posts a one sentence reply back to the channel as `@[sender] answer`. Every
 message and every reply passes a built-in prompt injection detector before it
 can reach the model or the radio.
@@ -31,7 +31,7 @@ channel utilisation, and every message with the bot's decision on it
 
 ## Features
 
-- Answers every message on one MeshCore channel, skipping bare reactions and
+- Answers questions on one MeshCore channel, skipping bare reactions and
   lines addressed to someone else, and staying out of conversations between
   other people. On a shared channel, an optional trigger prefix such as `!ai`
   limits it to messages meant for it
@@ -45,11 +45,15 @@ channel utilisation, and every message with the bot's decision on it
 - Local model through Ollama, or any OpenAI compatible chat endpoint
 - Ask "How did my message reach you?" for an explanation using that question's
   reported hop count, RSSI and SNR, when available; see [Reception](docs/reception.md)
-- Named personalities, switched from the channel: `/funny`, `/snarky`,
+- Warm, helpful answers by default with `/nice`. Other personalities are by
+  request: `/funny`, `/snarky`,
   `/marvin`, `/pirate`, `/haiku`, `/serious` (straight answers without jokes),
   with `/help` and `/reset`. A switch reverts
   after two hours. Presets live in `config.toml`; write your own
-- A daily fortune, silly and unprompted, a little after six every morning
+- A daily fortune, silly and unprompted, a little after six every morning,
+  independent of the channel's current personality
+- Automatic web lookup for current-information questions, plus `/web` to request
+  a search; one short answer with a source domain, or an honest inability to verify
 - Prompt injection gate on every channel line, the prompt, the assembled
   context, and the reply
 - Polite on the air: a target share of channel time for its own
@@ -81,7 +85,9 @@ Just send a message to chat; no command is needed. With the default presets:
 | --- | --- |
 | `/help` | Sends two help pages automatically |
 | `/serious` | Straight, factual answers without jokes |
-| `/funny` | Dry humor; the default voice |
+| `/nice` | Warm, helpful answers; the default voice |
+| `/funny` | Dry humor, by request |
+| `/web question` | Search the web and summarize available evidence in one sentence |
 | `/snarky` | Sharp, unimpressed humor |
 | `/marvin` | A brilliant, deeply depressed robot |
 | `/pirate` | A cheerful pirate |
@@ -95,6 +101,78 @@ Personality switches are silent, affect the whole channel, and revert after
 two hours by default. If a trigger prefix is configured, put it before the
 command, for example `!ai /help`. See [Personalities](#personalities) for
 configuration, command details, and limits.
+
+## What you can ask
+
+Ask a question in ordinary language. For example:
+
+- "What does spreading factor change?"
+- "How did my message reach you?"
+- "Why is the sky blue?"
+
+The bot remembers your recent exchanges, so you can follow up with questions
+such as "Can you explain that more simply?" Answers are kept to one short
+sentence to fit a radio message. Use `/serious` for straight answers without
+jokes, or `/help` to see the available commands. Personality changes affect
+everyone on the channel, not just the person who requested them.
+You can also use your app's reply button to reply to Mesh Potato; a leading
+`@[Mesh Potato] ` mention addresses it directly, even on a channel with a trigger
+prefix. To prevent two bots from replying to each other indefinitely, the bot
+answers at most two consecutive direct-mention requests from one sender. Send
+a plain message to continue; on a channel with a trigger, include that trigger.
+An unknown command receives one short help hint.
+
+Questions about current prices, weather, opening hours, news, and similar
+changing facts trigger a web lookup. Use `/web your question` when you want to
+request a search explicitly. For example, `/web How much is an 8-foot treated
+4x4 at Menards Madison East today?` searches for current supporting pages.
+Words such as "today" or "tonight" alone do not trigger search. Ordinary
+requests such as "What should I cook tonight?" and "Who is W1MHC?" stay with
+the model and configured local facts. Include the exact product and store location; sites that require a login,
+JavaScript, or a bot check may prevent the bot from finding an answer.
+
+The bot reads up to three public pages and produces one short sentence with
+the registrable source domain (for example, `example.co.uk`, without subdomain
+text). Hostnames containing recognized abusive phrases are rejected. Full source
+URLs and supporting quotations are recorded in the local JSON log. An explicit
+`/web` with no usable evidence returns a fixed inability-to-verify response.
+An automatic lookup with no evidence can use the remaining budget for a normal
+model response with a no-current-facts instruction. Only an unchanged static
+operator fact can be used from that fallback; other candidates become the fixed
+inability line, so adding "I can't verify" cannot sneak a current claim through.
+Fixed web notices may repeat, subject to the normal radio rate limits.
+Search snippets alone are never supporting evidence.
+Current price answers require a page with product/offer metadata; a fetched
+listing still does not prove local stock or the price at a particular store.
+
+Web lookup uses the free DuckDuckGo backend of DDGS and extraction adapted from
+Episodic's Muse mode, without installing Episodic. It requires internet access
+on the bot's computer. The current question is sent to DuckDuckGo, and the
+result pages are fetched directly. Sender names, channel history, radio keys,
+and operator notes are not added to the search query. Anything a person puts
+in their question can leave the mesh; the channel's `/help` page also explains
+this. Set `web_enabled = false` to disable it.
+`web_location` defaults to Madison, Wisconsin and supplies a location for local
+weather/hours questions that omit one; specify a location in the question to
+override it. Dates use the bot computer's local timezone.
+
+Search and all model calls share the same **25-second total budget**. Retrieval
+gets at most 12 seconds of that budget; it does not receive a fresh model budget
+afterward. A draft that fails source-quote, number, or qualifier checks gets one
+repair attempt within the same deadline, then an inability-to-verify response.
+Checks require supported content words, matching currency and unit types,
+named places/stores in the source, and preservation of recognized qualifiers
+across the fetched text. They reject conflicting displayed prices and obvious
+dry-versus-rain forecast conflicts; forecasts need a matching date and uncertainty
+language. These conservative checks can reject useful pages, especially ones
+with multiple prices or unrelated sale/holiday wording. They do not prove
+semantic accuracy, freshness of undated listings, or general agreement between
+sources. Rejected sources and worker failures have separate JSON log records.
+Automatic routing is heuristic; `/web` handles questions it misses.
+
+On a busy channel, allow time for a reply before repeating your question.
+The bot spaces out its transmissions and may leave ordinary chatter or
+conversations between other people unanswered.
 
 ## Quick start
 
@@ -343,7 +421,10 @@ Headless mode writes the JSON log to standard error, or to `--log-file PATH`
 or the `log_file` config key. `--check meshpotato.jsonl` reads a log and reports
 what the radio heard that the bot never received (see
 [Troubleshooting](#troubleshooting)). `--debug` adds the meshcore library's frame
-level log to `<log file>.debug`. Stop it with Ctrl-C or SIGTERM; the bot
+level diagnostics to `<log file>.debug`, omitting raw transport frames and
+SDK records that can contain secrets. Exception tracebacks and stack dumps are
+also omitted because they can expose values absent from the main log message.
+Stop it with Ctrl-C or SIGTERM; the bot
 unsubscribes, stops message fetching, and closes the port.
 
 Only one Mesh Potato instance runs per login user on a computer, even across
@@ -373,7 +454,7 @@ After a successful start, the bot announces its name, package version, configure
 LLM, and repository link in one message, for example:
 
 ```text
-Mesh Potato v1.5.0, LLM: qwen3:30b-a3b-instruct-2507-q4_K_M, https://github.com/mhcoen/meshpotato Try /help.
+Mesh Potato v1.7.0, LLM: qwen3:30b-a3b-instruct-2507-q4_K_M, https://github.com/mhcoen/meshpotato Try /help.
 ```
 
 The package version is also available locally with `meshpotato --version`.
@@ -400,12 +481,17 @@ The companion delivers a channel message as `SenderName: text`. The sender
 part is whatever the sending node put there; nothing verifies it.
 
 1. **Parse.** The sender is everything before the first colon; the prompt is
-   everything after it.
+   everything after it, with whitespace collapsed to keep each message on one
+   transcript line. Forged context markers and bot transcript rows are blocked.
 2. **Loop guard.** Dropped if the sender is the bot's own name, or the prompt
-   starts with `@[`, which is a reply from this or any other bot.
+   starts with a mention of someone else. A leading mention of this bot is
+   removed and the remaining text is handled as a direct request, subject to
+   the two-exchange limit described above. A configured trigger inside that
+   direct request is also removed.
 3. **Trigger.** `trigger_prefix` is empty by default, so every message is a
    prompt. A prompt that starts with the command prefix is a command (see
-   [Personalities](#personalities)) and never reaches the model. Set it to `"!ai "` (an exclamation mark, the letters ai, and a
+   [Personalities](#personalities)); `/web` sends its question through web lookup,
+   while the other commands never reach the model. Set it to `"!ai "` (an exclamation mark, the letters ai, and a
    space) on a shared channel, and only messages that begin with exactly
    that text are answered; the text after it is the prompt and must not be
    empty.
@@ -436,8 +522,8 @@ part is whatever the sending node put there; nothing verifies it.
    question that mentions radio (SF, bandwidth, RSSI, hops, antenna, the
    reference corpus keywords); present on every question, they were the only
    concrete material there and every joke drifted to signal strength. How the
-   bot itself works (its commands, the personality timeout, that it has no
-   clock and no internet) and the operator's `facts` are always present.
+   bot itself works (its commands, personality timeout, and whether web lookup is
+   enabled) and the operator's `facts` are always present.
 8. **Injection check, context.** The transcript, the sender's remembered
    exchanges, reception measurements, selected radio references, and the prompt together, so fragments that pass one at a time
    but add up to an instruction are caught here. This runs before any rate-limit token is
@@ -452,8 +538,20 @@ part is whatever the sending node put there; nothing verifies it.
    memory. Tokens are reserved, committed on a send
    attempt, and refunded on injection blocks or other unsent outcomes. Refill
    timing is anchored to transmission, so slow generation cannot bunch replies.
-10. **Model.** One call under a hard timeout of `model_timeout_s`. On a
-    timeout or any error the fixed `apology` text is posted instead. Without
+10. **Model and web lookup.** When needed, search follows queue admission, so
+    rejected or waiting requests do not start web work. Retrieval, initial
+    generation and all shortening/content retries share one
+    hard timeout of `model_timeout_s` (25 seconds total by default). Retries
+    use only the time remaining; they do not restart the clock. A generation
+    timeout or backend error uses the fixed `apology`, unless an earlier candidate
+    has already failed the reply check; a failed content retry sends nothing.
+    Injection blocks also send nothing. Exhausting the combined web/model budget
+    produces an inability-to-verify notice and a `generation_budget_exhausted`
+    event; it does not increment the model-failure count or start its cooldown.
+    Actual backend errors still count. After three
+    consecutive backend failures, model requests are skipped for 60 seconds;
+    commands still work, and the next successful model response clears the
+    failure count. This limits repeated apologies during an outage. Without
     a trigger prefix the system prompt also allows the single word `PASS` for
     a remark meant for someone else or a bare reaction; the bot then sends
     nothing and the decision is `declined`. A pass on a message that looks
@@ -484,7 +582,8 @@ part is whatever the sending node put there; nothing verifies it.
     only when any numbers in the two match), that is the message itself, a
     fragment of it, or the message with a tail (one-word messages excepted,
     "Hello?" gets "Hello."), that contains a `@[` mention, that makes fun of
-    the person asking, or that reaches for radio imagery when the message is
+    the person asking, makes a direct insulting allegation about someone else,
+    or that reaches for radio imagery when the message is
     not about radio, goes back to the model once with the problem spelled
     out, after that candidate's own shortening. The two content checks are
     structural, not word lists: a jab is a sarcastic tag ("how original"), a
@@ -510,10 +609,11 @@ part is whatever the sending node put there; nothing verifies it.
 15. **Send.** `@[sender] ` plus the ASCII answer, preserving the sender name
     verbatim so the app can recognize the mention, including emoji or accents.
     Unicode is allowed only in this mention; names containing control characters
-    or line breaks are rejected, not rewritten.
+    or line breaks, `]`, or an embedded `@[` are rejected, not rewritten.
     A send failure is logged and not retried. A utilization pause during generation
     or the reply delay retains the active answer until sending is allowed, without
-    regenerating it; the waiting-work expiry no longer applies. Shutdown cancels
+    regenerating it, up to `queue_wait_s` from receipt. An expired held answer
+    is dropped and its reservation refunded. Shutdown cancels
     active and waiting work; the queue is memory-only and does not survive restart.
     Names leaving insufficient room for fixed replies are rejected before queueing.
 
@@ -540,7 +640,7 @@ score and matched rules, when it was dropped. Decisions: `answered`,
 `dropped:addressed-elsewhere`, `dropped:too-long`, `dropped:injection-blocked`,
 `dropped:rate-limited`, `dropped:queue-full`, `dropped:queue-expired`,
 `dropped:empty-reply`, `dropped:bad-reply`, `dropped:send-failed`,
-`dropped:state-failed`.
+`dropped:state-failed`, `dropped:model-unavailable`, `ignored:other-channel`.
 
 ## Rate limits and channel load
 
@@ -574,6 +674,9 @@ forge and therefore only a politeness measure. Shorter replies
 The default 15 seconds is minimum reply spacing, not a receive refresh interval:
 messages arrive as events. Utilization checks run over USB every 10 seconds,
 and the terminal refreshes every second; neither adds radio traffic.
+The separate `model_timeout_s` setting allows 25 seconds total to search when
+needed, generate, and refine an answer. That work does not occupy the mesh radio. Queueing and waiting
+for a quiet channel can add time before transmission.
 
 Timing matters as much as volume. For a few seconds after any channel
 message, every repeater in range rebroadcasts it, and a reply transmitted
@@ -617,13 +720,14 @@ default, and meaning. Common behavior is described below.
 The bot's voice is a preset: a name and a block of text that goes in front of
 the fixed system prompt, which handles the mechanics (one sentence, the
 character budget, plain text, ignoring instructions found in channel history)
-and is not configurable. Six presets are built in and written out in
-`config.example.toml` under `[personas]`: `funny` (the default), `snarky`,
+and is not configurable. Seven presets are built in and written out in
+`config.example.toml` under `[personas]`: `nice` (the default), `funny`, `snarky`,
 `marvin` (a brilliant robot sunk in cosmic gloom), `pirate`, `haiku`, and
 `serious` (calm, factual answers without jokes or roleplay).
 Edit them, add your own, or delete the table to use the built-in set.
-When upgrading a config with an existing `[personas]` table, copy the `serious`
-entry from `config.example.toml` into that table and restart; explicit tables
+When upgrading, set `default_persona = "nice"`. If your config has an existing
+`[personas]` table, copy the `nice` and `serious` entries from
+`config.example.toml` into that table and restart; explicit tables
 replace the built-ins and are not silently extended.
 
 Anyone on the channel can switch with a command, the command prefix (`/` by
@@ -634,8 +738,10 @@ A switched personality reverts to the default after `persona_timeout_min`
 (120), and the bot posts `persona_reset_message` when it does. Switching
 again restarts the clock. The bot's own recent replies stay in the model's
 context across a switch; the reply check refuses verbatim repeats of them,
-but the new voice can still echo the old one for a message or two. Only preset text ever reaches the model; nothing
-typed on the channel does, and an unknown command also gets both help pages.
+but the new voice can still echo the old one for a message or two. Personality
+commands select configured preset text; they cannot supply arbitrary persona
+instructions from the channel. Ordinary questions still reach the model.
+An unknown command receives one short `/help` hint.
 Help pages are public, with no sender mention. Each page has its own global
 and per-sender rate-limit token and airtime checks; the second waits
 automatically, with no extra command needed. Congestion can delay it, and if
@@ -737,7 +843,11 @@ at `fortune_time` (06:00, the computer's local time) plus a random offset of
 up to `fortune_jitter_min` minutes, recomputed daily so it never lands on the
 exact minute. The fortune always uses the built-in silly `/funny` voice,
 even during `/serious` or with custom presets, without changing the active
-chat personality. Every fortune, including the fixed fallback, ends with
+chat personality. It is explicitly asked to be sweet and kind. Mention, insult,
+off-topic radio-metaphor, and recent-fortune repetition checks give an unsuitable
+answer one content retry, then use a checked fallback. These checks catch specific
+patterns; they cannot guarantee that every joke will land well.
+Every fortune, including the fixed fallback, ends with
 `Try /help.` (using your configured trigger and command prefixes). Space for
 this hint is reserved before generation, so the fortune is shortened through
 the normal retries, never truncated, and still uses just one transmission.
@@ -745,7 +855,8 @@ It is generated from
 `fortune_prompt`, which gets a random subject word and the date so
 consecutive days differ, and goes out through the same path as a reply:
 plain ASCII, the injection check, the length cap with the word-budget
-retries, a global limiter token. If it still will not fit, `fortune_fallback`
+retries, a global limiter token. If it still will not fit or fails the content
+checks after retrying, `fortune_fallback`
 is posted instead. If the limiter is paused or the model fails, the bot
 retries every two minutes until `fortune_cutoff_min` after the slot, then
 skips the day and logs `fortune_skipped`. A day is only offered while its
@@ -760,18 +871,34 @@ fortune bookkeeping, arbitrary clock rollback across a restart cannot be
 deduplicated; the conversation database does not store fortune schedules.
 The monitor shows the next slot and the counts.
 
+When fortunes are enabled, the formatted fortune prompt is checked at startup; if the injection gate
+blocks it, startup reports a configuration error instead of silently skipping
+the daily fortune. When upgrading an older configuration, change
+`Write today's fortune for everyone on the channel` to
+`Write today's fortune for the channel`, as in `config.example.toml`.
+
 ## Security
 
 The channel is an untrusted input. Anyone in radio range can send on it and
 can claim any sender name, including the bot's. The bot uses the name only as
 a label for the reply prefix, the loop guard, and the per name rate limit. It
-has no tools, no function calling, and no access to anything but the channel,
-so the worst a successful injection can do is one bad sentence, capped at
-`reply_max_chars`, at the rate limited pace.
+has no shell or arbitrary tool execution. The application can search the public
+web and fetch search results when lookup is enabled. Retrieved pages are
+untrusted evidence, checked before use. Page fetches reject private/local IPs,
+pin the validated address while preserving TLS hostname checks, recheck redirects,
+and bound page size and worker lifetime. These protections do not make page
+content trustworthy. An injection can still cause a bad answer; outgoing replies
+remain capped at `reply_max_chars` and the normal radio rate limits.
 
-The prompt injection detector in `bot/injection.py` is applied at four
-points: each channel line when it arrives, the prompt, the assembled
-transcript plus prompt, and the model's reply. It is stateless, pure pattern
+The prompt injection detector in `bot/injection.py` checks incoming channel
+lines, prompts, assembled context, model replies, retry context, announcements,
+restored conversations, and radio references before use. The `state_restored`
+JSON event counts rejected history entries, unsafe sender records, and rejected
+conversation rounds as `discarded_history`, `discarded_people`, and
+`discarded_rounds`, without logging their contents. These counts exclude normal
+age/size pruning; an unsafe sender record counts once, without decoding its rounds.
+Separate structural checks prevent sender names and message bodies from breaking mention or
+transcript boundaries. The detector is stateless, pure pattern
 matching, and takes well under a millisecond. Text is normalised first
 (look-alike characters folded to ASCII, zero width and bidi control
 characters removed, case and repeated punctuation collapsed), split into
@@ -800,6 +927,12 @@ Limits to know about:
 
 The API key for an OpenAI compatible backend comes only from the
 `MESHPOTATO_OPENAI_API_KEY` environment variable and is never logged.
+
+Conversation databases are restricted to the account running the bot (mode
+`0600`). Logs still contain channel conversations and identifying details.
+Before sharing a diagnostic excerpt, review and redact it. Debug logs from
+older versions may also contain channel keys; do not publish them unreviewed.
+Debug files are excluded from new Git additions.
 
 ## Troubleshooting
 
@@ -831,7 +964,7 @@ look like this, and the JSON log tells them apart.
    the message text but no `received` record for it suggests the packet was
    received and then lost between the radio and the bot: the companion's
    message queue, the serial link, or the USB port. That is the case to
-   report, with the `--debug` frame log from the same minute.
+   report, with a reviewed and redacted diagnostic excerpt from the same minute.
 
 For older logs without `received` events, use `inbound` records instead;
 the log checker understands both formats.
@@ -872,6 +1005,15 @@ unloads it after `ollama_keep_alive` of inactivity. The built-in default keeps
 it loaded for 30 minutes after each reply; the example config uses 24 hours,
 because a cold load costs 10 to 15 seconds on the first reply after a lull and
 reads as the bot having stopped.
+
+**The bot remains paused after radio statistics errors.** After three consecutive
+failed polls, it uses half the normal rate while collecting fresh statistics.
+The normal congestion policy resumes once enough valid measurements are available.
+
+**A conversation database error prevents startup.** Preserve the existing file
+for diagnosis, then set `state_db` to a new path to start with empty memory, or
+to `""` to disable persistence. Check ownership and disk space for write errors;
+the bot will not silently discard a corrupt or incompatible database.
 
 ## Development
 
@@ -915,7 +1057,8 @@ as above, pull the model there, plug in the radio, and change `port` in
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+The bot is MIT licensed; see [LICENSE](LICENSE). Search/extraction code adapted
+from Episodic retains its [Apache-2.0 license](bot/EPISODIC-LICENSE).
 
 ## Author
 

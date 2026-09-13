@@ -77,13 +77,19 @@ class SingleInstance:
             if (process.pid != os.getpid() and process.uids().real == os.getuid()
                     and process.create_time() == record["created"] and self._registered(process)):
                 return process
+        except psutil.AccessDenied:
+            # The flock still excludes us. Wait for voluntary release until the
+            # existing deadline; never signal a process we cannot verify.
+            return None
         except (ValueError, TypeError, KeyError, psutil.NoSuchProcess):
             pass
         return None
 
     def __enter__(self):
         try:
-            self.path = self.path.absolute()
+            # Resolve parent aliases (/tmp on macOS, symlinked home directories),
+            # but never resolve the final component: O_NOFOLLOW must reject it.
+            self.path = self.path.parent.resolve() / self.path.name
             self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
             parent = self.path.parent.lstat()
             if not stat.S_ISDIR(parent.st_mode) or parent.st_uid != os.getuid() or parent.st_mode & 0o077:

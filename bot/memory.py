@@ -13,6 +13,8 @@ from collections import OrderedDict, deque
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, replace
 
+from bot.text_safety import transcript_field
+
 
 @dataclass(frozen=True)
 class Round:
@@ -111,7 +113,7 @@ def render_rounds(rounds: list[Round], max_chars: int) -> str:
 
 
 def _round_text(r: Round) -> str:
-    return f"asked: {r.prompt}\nreplied: {r.reply}"
+    return f"asked: {transcript_field(r.prompt)}\nreplied: {transcript_field(r.reply)}"
 
 
 def fitting_rounds(rounds: list[Round], max_chars: int) -> list[Round]:
