@@ -45,7 +45,7 @@ any key may appear in any section.
 | `fortune_jitter_min` | `12` | Random offset after `fortune_time` |
 | `fortune_cutoff_min` | `30` | Keep retrying a deferred fortune until this long after the slot, then skip the day |
 | `fortune_prefix` | `Fortune: ` | Lead-in on the post |
-| `fortune_prompt` | see example config | The request to the model; must contain `{subject}`, may use `{date}`; a blocked formatted prompt is a startup configuration error when fortunes are enabled |
+| `fortune_prompt` | see example config | The request to the model; must contain `{subject}`, may use `{date}`; the legacy shipped opening "Write today's fortune for everyone on the channel" is migrated automatically in memory; a blocked formatted prompt is a startup configuration error when fortunes are enabled |
 | `fortune_fallback` | `A small kindness will return wearing a tiny party hat.` | Checked fallback if generation is empty, oversized, or fails content checks after retries |
 | `adaptive_enabled` | `true` | Scale the global rate by channel load |
 | `utilization_poll_s` | `10.0` | Seconds between radio statistics polls |
