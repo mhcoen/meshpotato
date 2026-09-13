@@ -154,9 +154,10 @@ def fetch_page(url: str, *, json_response: bool = False) -> dict:
 
 
 def collect(query: str) -> list[dict]:
-    from bot.sports import is_score_query, collect_scores
-    if is_score_query(query):
-        return collect_scores(query, lambda url: fetch_page(url, json_response=True))
+    from bot.sports import collect_sports
+    from bot.sports_queries import is_sports_query
+    if is_sports_query(query):
+        return collect_sports(query, lambda url: fetch_page(url, json_response=True))
     # Pin the engine instead of DDGS auto selecting undisclosed providers.
     results = DDGS(timeout=5).text(query, max_results=5, region="us-en", backend="duckduckgo")
     urls = list(dict.fromkeys(r["href"] for r in results if r.get("href")))[:3]
