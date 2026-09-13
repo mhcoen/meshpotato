@@ -83,6 +83,30 @@ def checked_references(gate: InjectionGate) -> tuple[Reference, ...]:
     return references
 
 
+# A question is about radio if it uses one of these words, a token like sf7 or cr5,
+# or any keyword from the reference corpus. Only such questions get the LoRa facts
+# and the radio's settings in the system prompt: present on every question, they were
+# the only concrete material there, and every joke drifted to signal strength.
+_RADIO_WORDS = frozenset((
+    "lora", "meshcore", "mesh", "radio", "radios", "antenna", "antennas", "frequency", "mhz", "khz", "bandwidth",
+    "spreading", "coding", "rssi", "snr", "dbm", "dbi", "hop", "hops", "repeater", "repeaters", "packet", "packets",
+    "airtime", "range", "signal", "signals", "reception", "node", "nodes", "companion", "channel", "channels",
+    "power", "watts", "watt", "milliwatts", "milliwatt", "gain", "noise", "interference", "transmit", "transmitter",
+    "transmission", "receiver", "receive", "tx", "rx", "sf", "cr", "bw", "preset", "firmware", "heltec", "rak",
+    "lilygo", "flood", "flooding", "routing", "duty", "modulation", "chirp", "wifi", "ham",
+    "wavelength", "propagation", "line of sight", "settings", "setting", "configuration", "configured", "config",
+    "tuned", "running on", "hardware",
+))
+_RADIO_TOKEN_RE = re.compile(r"\b(?:sf\d{1,2}|cr[5-8]|bw\d{2,3}|\d{3}(?:\.\d+)?\s*mhz)\b")
+
+
+def asks_about_radio(prompt: str, references: tuple[Reference, ...]) -> bool:
+    query = _words(prompt)
+    if _RADIO_TOKEN_RE.search(query) or any(f" {w} " in query for w in _RADIO_WORDS):
+        return True
+    return any(_words(k) in query for ref in references for k in ref.keywords)
+
+
 def select_references(prompt: str, references: tuple[Reference, ...]) -> str:
     """Rank whole-word/phrase matches; include at most two complete passages.
 

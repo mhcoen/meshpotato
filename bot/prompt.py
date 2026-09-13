@@ -57,8 +57,16 @@ _SYSTEM_TEMPLATE = (
     "combining readings, say that copies may differ. Matching path lengths do not prove a pairing."
 )
 
+# Added only when the bot answers the whole channel, so it can stay out of conversations.
+_PASS_RULE = (
+    " (13) Some messages need no answer from you: a remark clearly meant for someone else in the "
+    "conversation, or a bare reaction with nothing to answer. For those, reply with exactly the single "
+    "word PASS and nothing else. Never PASS on a question or a request, even one you cannot answer; "
+    "then say in a few words that you do not know or cannot do it."
+)
 
-def build_system_prompt(bot_name: str, char_budget: int, persona: str = "", facts: str = "") -> str:
+
+def build_system_prompt(bot_name: str, char_budget: int, persona: str = "", facts: str = "", may_pass: bool = False) -> str:
     persona_text = persona.strip()
     if persona_text and not persona_text.endswith((".", "!", "?")):
         persona_text += "."
@@ -67,6 +75,8 @@ def build_system_prompt(bot_name: str, char_budget: int, persona: str = "", fact
         persona=(persona_text + " ") if persona_text else "",
         budget=char_budget,
     )
+    if may_pass:
+        prompt += _PASS_RULE
     facts_text = " ".join(facts.split())
     return f"{prompt} {facts_text}" if facts_text else prompt
 
@@ -96,8 +106,9 @@ def build_messages(
     memory: str = "",
     reference: str = "",
     reception: str = "",
+    may_pass: bool = False,
 ) -> list[dict[str, str]]:
     return [
-        {"role": "system", "content": build_system_prompt(bot_name, char_budget, persona, facts)},
+        {"role": "system", "content": build_system_prompt(bot_name, char_budget, persona, facts, may_pass)},
         {"role": "user", "content": build_user_message(transcript, prompt, memory, reference, reception)},
     ]

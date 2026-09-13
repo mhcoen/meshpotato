@@ -37,15 +37,17 @@ from bot.dice import parse_dice
 from bot.guard import InjectionGate, Verdict
 from bot.history import History, HistoryEntry
 from bot.jsonlog import EventLog
-from bot.knowledge import Reference, checked_references, select_references
+from bot.knowledge import Reference, asks_about_radio, checked_references, select_references
 from bot.memory import PersonMemory
 from bot.magic8 import ANSWERS as MAGIC8_ANSWERS
 from bot.parse import extract_prompt, parse_channel_text
-from bot.personas import BUILTIN_PERSONAS, FORGET_COMMAND, LORA_FACTS, MAGIC8_COMMAND, RESET_COMMAND, ROLL_COMMAND, parse_command, radio_facts
+from bot.personas import BUILTIN_PERSONAS, FORGET_COMMAND, HELP_COMMAND, LORA_FACTS, MAGIC8_COMMAND, RESET_COMMAND, ROLL_COMMAND, parse_command, radio_facts
 from bot.prompt import build_messages, build_user_message
+from bot.quality import Problem, is_pass, looks_like_question, nudge as quality_nudge, reply_problem
 from bot.ratelimit import RateLimiter, Reservation
-from bot.reception import reception_context
+from bot.reception import RECEPTION_VOICE, asks_about_reception, reception_context
 from bot.reply import compose_reply, shape_reply, reply_prefix, reply_body_room, plain_ascii
+from bot.triage import is_reaction, mentions_someone
 from bot.lifecycle import close_step, disconnect
 from bot.storage import StateError, StateStore
 
@@ -60,6 +62,7 @@ class Decision(str, Enum):
     ANSWERED_MAGIC8 = "answered:magic8"
     PERSONA_SWITCHED = "persona-switched"
     APOLOGY = "apology"
+    DECLINED = "declined"  # the model judged that the line needed no reply from it
     DROP_LOOP_GUARD = "dropped:loop-guard"
     DROP_NO_TRIGGER = "dropped:no-trigger"
     DROP_TOO_LONG = "dropped:too-long"
@@ -68,6 +71,9 @@ class Decision(str, Enum):
     DROP_QUEUE_FULL = "dropped:queue-full"
     DROP_QUEUE_EXPIRED = "dropped:queue-expired"
     DROP_EMPTY = "dropped:empty-reply"
+    DROP_BAD_REPLY = "dropped:bad-reply"  # a repeat, a parrot, or a mention, twice in a row
+    DROP_CHATTER = "dropped:chatter"  # a bare reaction, nothing to answer
+    DROP_ADDRESSED_ELSEWHERE = "dropped:addressed-elsewhere"  # mentions someone with @[name]
     DROP_SEND_FAILED = "dropped:send-failed"
     DROP_STATE_FAILED = "dropped:state-failed"
     IGNORED_OTHER_CHANNEL = "ignored:other-channel"
@@ -118,6 +124,8 @@ class Stats:
     model_errors: int = 0
     shorten_retries: int = 0
     fallbacks_sent: int = 0
+    declined: int = 0
+    bad_replies: int = 0
     persona: str = ""
     persona_expires_at: float | None = None  # wall clock (time.time) for display
     persona_switches: int = 0
@@ -164,7 +172,6 @@ class BotService:
         self.stats = Stats(channel_idx=cfg.channel_idx, persona=cfg.default_persona)
         self._subs: list[Any] = []
         self._stopped = False
-        self._last_sent: str | None = None
         self.active_persona = cfg.default_persona
         self.memory = PersonMemory(
             rounds=cfg.person_memory_rounds,
@@ -467,6 +474,14 @@ class BotService:
             arguments = prompt[len(cfg.command_prefix):].strip().partition(" ")[2]
             return await self._handle_command(parsed, path_len, command, received_at, arguments)
 
+        # 2c. Answering the whole channel takes some judgment about what wants an answer.
+        # With a trigger prefix the person addressed the bot on purpose, so all of it applies.
+        implicit = not cfg.trigger_prefix
+        if implicit and mentions_someone(prompt, cfg.bot_name):
+            return self._record(parsed, path_len, Decision.DROP_ADDRESSED_ELSEWHERE)
+        if implicit and is_reaction(prompt):
+            return self._record(parsed, path_len, Decision.DROP_CHATTER)
+
         # 3. Length.
         if len(prompt) > cfg.prompt_max_chars:
             return self._record(
@@ -496,7 +511,8 @@ class BotService:
             cfg.transcript_max_chars, cfg.person_memory_max_chars,
         )
         reference = select_references(prompt, self.references)
-        reception = reception_context(payload)
+        reception = reception_context(payload) if asks_about_reception(prompt) else ""
+        radio_prompt = bool(reception) or asks_about_radio(prompt, self.references)
         context_verdict = self.gate.check(build_user_message(transcript, prompt, memory_block, reference, reception))
         if context_verdict.blocked:
             self.stats.injection_blocks += 1
@@ -519,37 +535,82 @@ class BotService:
         if not limit.allowed:
             return self._queue_drop(parsed, path_len, limit.reason)
         state = self._requests[asyncio.current_task()]
+        rounds = self.memory.rounds_for(parsed.sender) if state.remember else []
         transcript, memory_block = conversation_context(
-            entries, self.memory.rounds_for(parsed.sender) if state.remember else [],
-            parsed.sender, cfg.bot_name, cfg.transcript_max_chars, cfg.person_memory_max_chars,
+            entries, rounds, parsed.sender, cfg.bot_name, cfg.transcript_max_chars, cfg.person_memory_max_chars,
         )
         self._check(build_user_message(transcript, prompt, memory_block, reference, reception), "context")
         # Models overshoot a stated character budget by 10 to 20 percent, so state 80 percent of
         # the real room; the hard cap in compose_reply still enforces the true limit.
         budget = max(1, int(available * 0.8))
+        persona = cfg.personas[self.active_persona] + (" " + RECEPTION_VOICE if reception else "")
         messages = build_messages(
-            cfg.bot_name, budget, transcript, prompt, cfg.personas[self.active_persona], self.facts, memory_block,
-            reference, reception,
+            cfg.bot_name, budget, transcript, prompt, persona,
+            self.facts if radio_prompt else self._general_facts, memory_block,
+            reference, reception, may_pass=implicit,
         )
 
         # Model, under a hard timeout per call. A reply that does not fit goes back to the
-        # model with the exact limit; nothing is ever cut mid-sentence.
+        # model with the exact limit; nothing is ever cut mid-sentence. A reply that repeats
+        # an earlier one, parrots the message, or mentions someone gets one more try with a
+        # pointed nudge, then nothing is sent.
         started = self._clock()
         fallback = False
-        try:
-            shaped, retries, latency_ms, truncated = await self._generate_fitting(messages, available)
-        except InjectionBlocked:
-            raise
-        except asyncio.TimeoutError:
-            self.stats.model_errors += 1
-            self.stats.last_latency_ms = round((self._clock() - started) * 1000.0, 1)
-            return await self._send_apology(parsed, path_len, received_at, reason="timeout")
-        except Exception as exc:  # noqa: BLE001
-            self.stats.model_errors += 1
-            return await self._send_apology(parsed, path_len, received_at, reason=f"{type(exc).__name__}: {exc}")
-        if not shaped.strip() and not truncated:
-            self.stats.model_errors += 1
-            return await self._send_apology(parsed, path_len, received_at, reason="empty reply")
+        retries = 0
+        latency_ms = 0.0
+        problem = None
+        rejected = None  # the first attempt's problem; once set, only a clean replacement may be sent
+        for attempt in range(2):
+            try:
+                shaped, more, more_ms, truncated = await self._generate_fitting(messages, available)
+            except InjectionBlocked:
+                raise
+            except (asyncio.TimeoutError, Exception) as exc:  # noqa: BLE001
+                self.stats.model_errors += 1
+                latency_ms = round((self._clock() - started) * 1000.0, 1)  # the whole exchange, failed call included
+                self.stats.last_latency_ms = latency_ms
+                reason = "timeout" if isinstance(exc, asyncio.TimeoutError) else f"{type(exc).__name__}: {exc}"
+                if rejected is not None:
+                    return self._drop_bad_reply(parsed, path_len, rejected, shaped, latency_ms, retries, retry_error=reason)
+                return await self._send_apology(parsed, path_len, received_at, reason=reason)
+            retries += more
+            latency_ms = round(latency_ms + more_ms, 1)
+            self.stats.last_latency_ms = latency_ms  # the whole exchange, whichever branch returns next
+            if not shaped.strip() and not truncated:
+                self.stats.model_errors += 1
+                if rejected is not None:
+                    return self._drop_bad_reply(parsed, path_len, rejected, shaped, latency_ms, retries, retry_error="empty reply")
+                return await self._send_apology(parsed, path_len, received_at, reason="empty reply")
+            if implicit and is_pass(shaped):
+                # A pass on a question gets one retry; the model uses PASS as an exit from
+                # questions it cannot answer, which want "I do not know" instead.
+                if rejected is not None or not looks_like_question(prompt, cfg.bot_name):
+                    self.stats.declined += 1
+                    return self._record(parsed, path_len, Decision.DECLINED, latency_ms=latency_ms, retries=retries)
+                problem = Problem("pass")
+            elif truncated:
+                if rejected is not None:  # a cut-off replacement is not usable
+                    return self._drop_bad_reply(parsed, path_len, rejected, shaped, latency_ms, retries, retry_error="truncated")
+                problem = None  # the first attempt takes the fallback path below
+            else:
+                problem = self._reply_problem(shaped, prompt, parsed.sender, rounds, entries, radio_prompt)
+            if problem is None:
+                break
+            if attempt == 0:
+                rejected = problem
+                retries += 1
+                self.log.emit("reply_retry", sender=parsed.sender, reason=problem.kind, matched=problem.text, reply=shaped)
+                messages = messages + [
+                    {"role": "assistant", "content": shaped},
+                    {"role": "user", "content": quality_nudge(problem)},
+                ]
+                self._check("\n".join(m["content"] for m in messages if m["role"] != "system"), "context")
+        if problem is not None:
+            return self._drop_bad_reply(parsed, path_len, problem, shaped, latency_ms, retries,
+                                        first_reason=rejected.kind if rejected is not None else problem.kind)
+        if rejected is not None and len(shaped) > available:
+            # The replacement does not fit either; silence rather than the fixed fallback line.
+            return self._drop_bad_reply(parsed, path_len, rejected, shaped, latency_ms, retries, retry_error="too long")
 
         # Outbound.
         if len(shaped) > available or truncated:
@@ -692,16 +753,70 @@ class BotService:
         self.stats.people_remembered = self.memory.people
         self.stats.rounds_remembered = self.memory.total_rounds
 
+    # ------------------------------------------------------------------ reply checks
+
+    def _drop_bad_reply(self, parsed, path_len, problem, shaped: str, latency_ms: float, retries: int, **extra) -> Decision:
+        self.stats.bad_replies += 1
+        return self._record(parsed, path_len, Decision.DROP_BAD_REPLY, reason=problem.kind, matched=problem.text,
+                            reply=shaped, latency_ms=latency_ms, retries=retries, **extra)
+
+    def _reply_problem(self, shaped: str, prompt: str, sender: str, rounds, entries, radio_prompt: bool = False):
+        """Compare against what the model was shown: this person's rounds and the bot's recent lines.
+
+        The bot's own lines come from both the ingestion snapshot (what the model saw) and
+        the live history (replies sent while this request waited in the queue): a flood of
+        chatter can evict a line from one while it is still in the other.
+        """
+        prefix = reply_prefix(sender)
+        same = [r.reply for r in rounds]
+        others = []
+        seen: set[str] = set()
+        for entry in list(entries) + self.history.entries():
+            if entry.sender != self.cfg.bot_name or entry.flagged or entry.text in seen:
+                continue
+            seen.add(entry.text)
+            if entry.text.startswith(prefix):
+                same.append(entry.text[len(prefix):])
+            elif entry.text.startswith("@["):
+                others.append(entry.text.partition("] ")[2] or entry.text)
+            else:
+                others.append(entry.text)
+        return reply_problem(shaped, prompt, same, others, radio_prompt=radio_prompt)
+
     # ------------------------------------------------------------------ facts
 
     def _compose_facts(self, info: dict) -> str:
-        """Built-in LoRa facts, the radio's own settings, then whatever the config adds."""
-        parts = [f"General LoRa and MeshCore facts: {LORA_FACTS}"]
+        """Built-in LoRa facts and the radio's own settings, then how the bot works and the operator's notes.
+
+        The radio part goes to the model only for radio questions; see :func:`asks_about_radio`.
+        Returns the complete text, which is what a radio question gets.
+        """
+        radio = [f"General LoRa and MeshCore facts: {LORA_FACTS}"]
         if settings := radio_facts(info):
-            parts.append(f"Companion settings at startup: {settings}")
+            radio.append(f"Companion settings at startup: {settings}")
+        general = [f"How this bot works: {self._mechanics()}"]
         if local := self.cfg.facts.strip():
-            parts.append(f"Local notes from the operator: {local}")
-        return " ".join(parts)
+            general.append(f"Local notes from the operator: {local}")
+        self._radio_facts = " ".join(radio)
+        self._general_facts = " ".join(general)
+        return f"{self._radio_facts} {self._general_facts}"
+
+    def _facts_for(self, prompt: str) -> str:
+        return self.facts if asks_about_radio(prompt, self.references) else self._general_facts
+
+    def _mechanics(self) -> str:
+        """What the bot can truthfully say about itself; without this it invents the answers."""
+        cfg = self.cfg
+        p = cfg.command_prefix
+        names = ", ".join(f"{p}{n}" for n in cfg.personas)
+        minutes = int(cfg.persona_timeout_min) if float(cfg.persona_timeout_min).is_integer() else cfg.persona_timeout_min
+        return (
+            f"{p}{HELP_COMMAND} lists the commands. {names} switch the voice for the whole channel, and it "
+            f"reverts to {p}{cfg.default_persona} on its own after {minutes} minutes; {p}{RESET_COMMAND} restores it at once. "
+            f"{p}{FORGET_COMMAND} clears the memory of the person asking. {p}{ROLL_COMMAND} rolls dice and "
+            f"{p}{MAGIC8_COMMAND} answers yes or no questions. It has no clock and no internet access, so it "
+            "cannot give the time, live prices, or news, and it only sees recent messages on this channel."
+        )
 
     # ------------------------------------------------------------------ generation
 
@@ -787,7 +902,7 @@ class BotService:
             return "no-room"
         budget = max(1, int(available * 0.8))
         persona = BUILTIN_PERSONAS["funny"] if what == "fortune" else cfg.personas[self.active_persona]
-        messages = build_messages(cfg.bot_name, budget, "", request, persona, self.facts)
+        messages = build_messages(cfg.bot_name, budget, "", request, persona, self._general_facts)
         try:
             shaped, retries, latency_ms, truncated = await self._generate_fitting(messages, available)
         except InjectionBlocked:
@@ -1068,6 +1183,5 @@ class BotService:
             self.stats.send_errors += 1
             self.log.emit("send_error", error=str(getattr(result, "payload", None)))
             return False
-        self._last_sent = reply
         self.history.append(HistoryEntry(sender=self.cfg.bot_name, text=reply))
         return True

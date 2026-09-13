@@ -83,3 +83,12 @@ def test_compose_reply_returns_none_when_sender_eats_the_budget():
 
 def test_compose_reply_returns_none_for_empty_text():
     assert compose_reply("Alice", "   ", 120) is None
+
+
+def test_first_sentence_keeps_a_compass_letter_after_a_number():
+    assert first_sentence("Menard's is at 1200 N. Stoughton Road. Go.") == "Menard's is at 1200 N. Stoughton Road."
+    assert first_sentence("Turn left on W. Main St. Then park.") == "Turn left on W."  # a lone letter still ends a sentence
+    assert first_sentence("It is on Park Ave. near the lake. Go.") == "It is on Park Ave. near the lake."
+    assert first_sentence("Go to 1200 N. Stoughton Rd. Bring your ID.") == "Go to 1200 N. Stoughton Rd."
+    assert first_sentence("The speed is 25 mph. Drive safely.") == "The speed is 25 mph."
+    assert first_sentence("Ask Dr. Smith about it. Then wait.") == "Ask Dr. Smith about it."

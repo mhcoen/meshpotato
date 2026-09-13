@@ -10,8 +10,12 @@ How strong was my signal at your radio?
 Was my question received directly or over repeaters?
 ```
 
-The model receives a small labelled block with the RSSI in dBm, SNR in dB,
-and reported hop count attached to that delivered question. For example, given
+For a question about reception (signal, RSSI, SNR, hops, whether it heard
+you) the model receives a small labelled block with the RSSI in dBm, SNR in dB,
+and reported hop count attached to that delivered question, and the active
+persona is told to state those numbers plainly first. Other messages do not
+carry the block: given the numbers on every message, the model recited them
+in reply to greetings and remarks. For example, given
 RSSI -104, SNR -6.25 and five reported hops, an illustrative answer is:
 
 ```text

@@ -55,7 +55,8 @@ def test_dedup_removes_only_matching_number_of_occurrences():
 
 @pytest.mark.parametrize("sender", ["Alice", "\U0001f31fAndy0"])
 async def test_service_removes_overlap_with_exact_mentions_and_trigger(harness, sender):
-    h = harness(backend=FakeBackend(reply="Higher can help."), trigger_prefix="!ai ",
+    # Two different replies: a second identical one would be refused as a repeat.
+    h = harness(backend=FakeBackend(replies=["Higher can help.", "Because thin air carries less."]), trigger_prefix="!ai ",
                 global_burst=9, sender_burst=9)
     await h.say(f"{sender}: !ai height question")
     await h.say(f"{sender}: !ai and why")
