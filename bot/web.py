@@ -12,6 +12,7 @@ from bot.reply import shape_reply
 from bot.text_safety import has_block_marker
 from bot.quality import third_party_jab
 from bot.web_evidence import supports, qualifiers
+from bot.sports import is_score_query
 from tld import get_fld
 
 UNVERIFIED = "I couldn't verify that from current web sources."
@@ -28,6 +29,8 @@ def needs_web(prompt: str) -> bool:
         return False
     if re.search(r"\b(?:define|meaning of|how (?:does|do|is|are) .*work)\b", text):
         return False
+    if is_score_query(prompt):
+        return True
     return bool(re.search(
         r"\b(?:weather|forecast|will it (?:rain|snow)|is it (?:raining|snowing)|in stock|"
         r"(?:opening|business|store|library|sunday|monday|tuesday|wednesday|thursday|friday|saturday) hours|"
