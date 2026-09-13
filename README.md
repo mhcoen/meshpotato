@@ -83,7 +83,11 @@ Just send a message to chat; no command is needed. With the default presets:
 
 | Command | What it does |
 | --- | --- |
-| `/help` | Sends two help pages automatically |
+| `/help` | Lists help topics; unknown topics return this index |
+| `/help web` | Automatic searches and `/web` usage; the bot handles the internet connection and search |
+| `/help voices` | Lists the configured voice commands, without descriptions |
+| `/help fun` | Dice and Magic 8 Ball examples, plus daily fortunes when enabled |
+| `/help privacy` | Explains what `/forget` clears and what `/reset` changes |
 | `/serious` | Straight, factual answers without jokes |
 | `/nice` | Warm, helpful answers; the default voice |
 | `/funny` | Dry humor, by request |
@@ -150,8 +154,10 @@ Episodic's Muse mode, without installing Episodic. It requires internet access
 on the bot's computer. The current question is sent to DuckDuckGo, and the
 result pages are fetched directly. Sender names, channel history, radio keys,
 and operator notes are not added to the search query. Anything a person puts
-in their question can leave the mesh; the channel's `/help` page also explains
-this. Set `web_enabled = false` to disable it.
+in their question can leave the mesh. The bot's computer handles the internet
+connection and search; the person asking needs no internet access, account, app,
+or extra setup. The `/help web` topic makes this clear. Set `web_enabled = false`
+to disable web lookup.
 `web_location` defaults to Madison, Wisconsin and supplies a location for local
 weather/hours questions that omit one; specify a location in the question to
 override it. Dates use the bot computer's local timezone.
@@ -742,10 +748,14 @@ but the new voice can still echo the old one for a message or two. Personality
 commands select configured preset text; they cannot supply arbitrary persona
 instructions from the channel. Ordinary questions still reach the model.
 An unknown command receives one short `/help` hint.
-Help pages are public, with no sender mention. Each page has its own global
-and per-sender rate-limit token and airtime checks; the second waits
-automatically, with no extra command needed. Congestion can delay it, and if
-it cannot get a token within `queue_wait_s` after page one, it is skipped.
+`/help` returns a short index: `Help: /help web | /help voices | /help fun | /help privacy`.
+Request one topic, for example `/help fun`, to see its help. Topic names are
+case-insensitive; an unknown topic returns the index. Each request sends one
+public message with no sender mention, using one global and per-sender rate-limit
+token and the usual airtime checks. Help uses no model or web calls.
+The displays follow the configuration: voices list only available presets,
+web help says when search is disabled, and fun help mentions daily fortunes
+only when enabled. Command examples include configured trigger and command prefixes.
 On a shared channel with a trigger prefix, commands go after it: `!ai /help`.
 
 `/roll` rolls two six-sided dice by default. Supply the number of dice and

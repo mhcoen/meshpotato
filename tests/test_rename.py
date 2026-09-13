@@ -84,7 +84,7 @@ async def test_new_identity_startup_help_serious_roll_and_loop_guard(clock, tmp_
         assert h.sent[0][1].startswith(f"Mesh Potato v{__version__}, LLM: ")
         assert h.sent[0][1].endswith(" Try /help.")
         assert await h.say("Alice: /help") is Decision.ANSWERED_HELP
-        assert [text for _, text in h.sent[1:]] == list(cfg.help_pages)
+        assert [text for _, text in h.sent[1:]] == [cfg.help_message]
         assert await h.say("Alice: /serious") is Decision.PERSONA_SWITCHED
         assert await h.say("Alice: explain bandwidth") is Decision.ANSWERED
         assert BUILTIN_PERSONAS["serious"] in h.backend.calls[-1][0]["content"]

@@ -112,13 +112,3 @@ def parse_command(prompt: str, prefix: str) -> str | None:
         return None
     word = prompt[len(prefix):].strip().split(" ", 1)[0].lower()
     return word or None
-
-
-def build_help(names: list[str], timeout_min: float, prefix: str) -> str:
-    """The command page of the two-message help response."""
-    minutes = int(timeout_min) if float(timeout_min).is_integer() else timeout_min
-    listed = " ".join(f"{prefix}{n}" for n in names)
-    return (
-        f"2/2 {listed}: voice for {minutes} min; {prefix}{RESET_COMMAND} resets; "
-        f"{prefix}{FORGET_COMMAND} forgets you."
-    )
