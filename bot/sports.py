@@ -92,8 +92,17 @@ def _team(competitor):
 
 
 def matches(team, query):
+    return match_strength(team, query) > 0
+
+
+def match_strength(team, query):
     normalized = " " + words(query) + " "
-    return any(" " + words(value) + " " in normalized for value in team.values())
+    strengths = {"display": 3, "name": 2, "short": 2, "location": 1}
+    found = [strengths[key] for key, value in team.items()
+             if key in strengths and " " + words(value) + " " in normalized]
+    if re.search(r"\b" + re.escape(team["abbreviation"]) + r"\b", query):
+        found.append(2)
+    return max(found, default=0)
 
 
 def parse_event(event: dict, league: str, query: str, now: datetime) -> dict | None:
