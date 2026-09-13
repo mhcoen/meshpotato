@@ -85,8 +85,8 @@ def _name(value, limit=40):
 def _team(competitor):
     team = competitor["team"]
     # Keep only typed display fields, never links or free-form provider text.
-    return {"name": _name(team["name"]), "display": _name(team["displayName"]),
-            "short": _name(team.get("shortDisplayName", team["name"])),
+    return {"name": _name(team.get("name") or team["shortDisplayName"]), "display": _name(team["displayName"]),
+            "short": _name(team.get("shortDisplayName") or team["name"]),
             "abbreviation": _name(team["abbreviation"], 5),
             "location": _name(team["location"])}
 
@@ -277,5 +277,28 @@ def score_answer(pages: list[dict], query: str, now: datetime, available: int):
         line = f"{matchup}; {event['status']}, {event['date']} (ESPN {fetched:%H:%M %Z})."
         if len(line) <= available:
             return line, {"league": event["league"], "game_id": event["id"], "fetched_at": stamp,
-                          "url": f"https://www.espn.com/{event['league']}/game/_/gameId/{event['id']}"}
+                          "url": f"https://www.espn.com/{event['league']}/game/_/gameId/{event['id']}",
+                          "team_context": team_context(event["teams"], query, event["league"])}
     return UNAVAILABLE, None
+
+
+def team_context(teams, query, league):
+    named = [t for t in teams if matches(t, query)]
+    return {"team": named[0]["display"], "league": league} if len(named) == 1 else None
+
+
+def collect_sports(query, fetch):
+    from bot.sports_queries import sports_kind
+    from bot.sports_details import collect_details
+    return collect_scores(query, fetch) if sports_kind(query) == "score" else collect_details(query, fetch)
+
+
+def sports_answer(pages, query, now, available):
+    from bot.sports_queries import sports_kind
+    from bot.sports_details import details_answer
+    return score_answer(pages, query, now, available) if sports_kind(query) == "score" else details_answer(pages, query, now, available)
+
+
+def sports_failure(query):
+    from bot.sports_queries import sports_kind
+    return UNAVAILABLE if sports_kind(query) == "score" else "I couldn't verify that from ESPN; include the team or division and league."

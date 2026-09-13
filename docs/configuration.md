@@ -32,7 +32,7 @@ any key may appear in any section.
 | `temperature` | `0.6` | Sampling temperature |
 | `max_tokens` | `80` | Ordinary reply output token limit; the shipped backends allow 384 tokens for web JSON and its quote, with the same radio text cap; adapters without a token override retain their configured limit |
 | `model_timeout_s` | `25.0` | One total deadline shared by web retrieval, initial generation and every shortening/content retry; retrieval uses at most 12 seconds of this budget |
-| `web_enabled` | `true` | Automatic current-information lookup and `/web`; NFL/NBA/WNBA/MLB/NHL scores use structured ESPN feeds without the model; other searches send the question to DuckDuckGo and fetch up to three public result pages |
+| `web_enabled` | `true` | Automatic current-information lookup and `/web`; NFL/NBA/WNBA/MLB/NHL scores, standings and next games use structured ESPN feeds without the model; other searches send the question to DuckDuckGo and fetch up to three public result pages |
 | `web_location` | `Madison, Wisconsin` | Default location for local weather/hours questions without an explicit location; dates, including sports game dates, use the computer's local timezone |
 | `global_rate_per_min` | `4.0` | Burst floor: replies per minute across all senders |
 | `global_burst` | `1` | Global bucket size |
