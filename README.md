@@ -126,13 +126,22 @@ Questions about current prices, weather, opening hours, news, and similar
 changing facts trigger a web lookup. Use `/web your question` when you want to
 request a search explicitly. For example, `/web How much is an 8-foot treated
 4x4 at Menards Madison East today?` searches for current supporting pages.
-Include the exact product and store location; sites that require a login,
+Words such as "today" or "tonight" alone do not trigger search. Ordinary
+requests such as "What should I cook tonight?" and "Who is W1MHC?" stay with
+the model and configured local facts. Include the exact product and store location; sites that require a login,
 JavaScript, or a bot check may prevent the bot from finding an answer.
 
 The bot reads up to three public pages and produces one short sentence with
-the source domain. Full source URLs and supporting quotations are recorded in
-the local JSON log. If it cannot find usable evidence, it replies that it
-couldn't verify the answer. It does not turn search snippets into confirmed facts.
+the registrable source domain (for example, `example.co.uk`, without subdomain
+text). Hostnames containing recognized abusive phrases are rejected. Full source
+URLs and supporting quotations are recorded in the local JSON log. An explicit
+`/web` with no usable evidence returns a fixed inability-to-verify response.
+An automatic lookup with no evidence can use the remaining budget for a normal
+model response with a no-current-facts instruction. Only an unchanged static
+operator fact can be used from that fallback; other candidates become the fixed
+inability line, so adding "I can't verify" cannot sneak a current claim through.
+Fixed web notices may repeat, subject to the normal radio rate limits.
+Search snippets alone are never supporting evidence.
 Current price answers require a page with product/offer metadata; a fetched
 listing still does not prove local stock or the price at a particular store.
 
@@ -141,7 +150,8 @@ Episodic's Muse mode, without installing Episodic. It requires internet access
 on the bot's computer. The current question is sent to DuckDuckGo, and the
 result pages are fetched directly. Sender names, channel history, radio keys,
 and operator notes are not added to the search query. Anything a person puts
-in their question can leave the mesh. Set `web_enabled = false` to disable it.
+in their question can leave the mesh; the channel's `/help` page also explains
+this. Set `web_enabled = false` to disable it.
 `web_location` defaults to Madison, Wisconsin and supplies a location for local
 weather/hours questions that omit one; specify a location in the question to
 override it. Dates use the bot computer's local timezone.
@@ -150,9 +160,14 @@ Search and all model calls share the same **25-second total budget**. Retrieval
 gets at most 12 seconds of that budget; it does not receive a fresh model budget
 afterward. A draft that fails source-quote, number, or qualifier checks gets one
 repair attempt within the same deadline, then an inability-to-verify response.
-These checks reduce unsupported
-answers, but do not prove semantic accuracy, freshness, or agreement between
-sources. The model is instructed to decline conflicting or incomplete evidence.
+Checks require supported content words, matching currency and unit types,
+named places/stores in the source, and preservation of recognized qualifiers
+across the fetched text. They reject conflicting displayed prices and obvious
+dry-versus-rain forecast conflicts; forecasts need a matching date and uncertainty
+language. These conservative checks can reject useful pages, especially ones
+with multiple prices or unrelated sale/holiday wording. They do not prove
+semantic accuracy, freshness of undated listings, or general agreement between
+sources. Rejected sources and worker failures have separate JSON log records.
 Automatic routing is heuristic; `/web` handles questions it misses.
 
 On a busy channel, allow time for a reply before repeating your question.
@@ -530,7 +545,10 @@ part is whatever the sending node put there; nothing verifies it.
     use only the time remaining; they do not restart the clock. A generation
     timeout or backend error uses the fixed `apology`, unless an earlier candidate
     has already failed the reply check; a failed content retry sends nothing.
-    Injection blocks also send nothing. After three
+    Injection blocks also send nothing. Exhausting the combined web/model budget
+    produces an inability-to-verify notice and a `generation_budget_exhausted`
+    event; it does not increment the model-failure count or start its cooldown.
+    Actual backend errors still count. After three
     consecutive backend failures, model requests are skipped for 60 seconds;
     commands still work, and the next successful model response clears the
     failure count. This limits repeated apologies during an outage. Without
@@ -564,7 +582,8 @@ part is whatever the sending node put there; nothing verifies it.
     only when any numbers in the two match), that is the message itself, a
     fragment of it, or the message with a tail (one-word messages excepted,
     "Hello?" gets "Hello."), that contains a `@[` mention, that makes fun of
-    the person asking, or that reaches for radio imagery when the message is
+    the person asking, makes a direct insulting allegation about someone else,
+    or that reaches for radio imagery when the message is
     not about radio, goes back to the model once with the problem spelled
     out, after that candidate's own shortening. The two content checks are
     structural, not word lists: a jab is a sarcastic tag ("how original"), a

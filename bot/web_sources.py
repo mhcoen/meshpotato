@@ -14,12 +14,14 @@ import re
 import socket
 import ssl
 import sys
+import time
 from urllib.parse import urljoin, urlsplit
 
 import trafilatura
 import certifi
 from bs4 import BeautifulSoup
 from ddgs import DDGS
+from bot.web_evidence import qualifiers
 
 def extract_text(html: str) -> str:
     # Keep tables: retail prices and hours can be in them.
@@ -58,15 +60,26 @@ def public_target(url: str) -> tuple[str, int, str, str]:
     host = parsed.hostname.encode("idna").decode("ascii")
     port = parsed.port or (443 if parsed.scheme == "https" else 80)
     addresses = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
-    if not addresses or any(not ipaddress.ip_address(a[4][0]).is_global for a in addresses):
+    def direct_public(address):
+        ip = ipaddress.ip_address(address)
+        # Reject translation/tunneling ranges as well as ordinary local IPs.
+        # A public NAT64 endpoint can translate an embedded private IPv4 address.
+        translated = isinstance(ip, ipaddress.IPv6Address) and (
+            ip in ipaddress.ip_network("64:ff9b::/96") or ip in ipaddress.ip_network("64:ff9b:1::/48")
+            or ip.ipv4_mapped is not None or ip.sixtofour is not None or ip.teredo is not None)
+        return ip.is_global and not translated
+    if not addresses or any(not direct_public(a[4][0]) for a in addresses):
         raise ValueError("non-public address")
     return host, port, addresses[0][4][0], parsed.scheme
 
 
 def fetch_page(url: str) -> dict:
     """No proxies, cookies, JS, credential forwarding, or second DNS resolution."""
+    deadline = time.monotonic() + 8
     try:
         for _ in range(4):
+            if time.monotonic() >= deadline:
+                raise TimeoutError("page deadline")
             host, port, address, scheme = public_target(url)
             conn = http.client.HTTPConnection(host, port, timeout=4)
             sock = socket.create_connection((address, port), timeout=4)
@@ -84,16 +97,27 @@ def fetch_page(url: str) -> dict:
                     continue
                 if response.status != 200:
                     raise ValueError("page unavailable")
+                if response.getheader("content-encoding", "identity").lower() not in {"", "identity"}:
+                    raise ValueError("unsupported content encoding")
                 kind = response.getheader("content-type", "").lower()
                 if not any(t in kind for t in ("text/html", "application/xhtml+xml", "text/plain")):
                     raise ValueError("unsupported content type")
-                raw = response.read(1_000_001)
-                if len(raw) > 1_000_000:
-                    raise ValueError("page exceeds 1 MB")
+                raw = bytearray()
+                while True:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError("page deadline")
+                    sock.settimeout(min(4, remaining))
+                    chunk = response.read1(min(65536, 1_000_001 - len(raw)))
+                    if not chunk:
+                        break
+                    raw.extend(chunk)
+                    if len(raw) > 1_000_000:
+                        raise ValueError("page exceeds 1 MB")
                 charset = re.search(r"charset=([\w-]+)", kind)
                 html = raw.decode(charset[1] if charset else "utf-8", errors="replace")
                 text = extract_text(html) if "html" in kind else html
-                if len(text) < 80 or access_challenge(text):
+                if len(text.strip()) < 80 or access_challenge(text):
                     raise ValueError("no usable page evidence")
                 # Published dates and Product/Offer metadata help distinguish an old
                 # article from a live product listing. Snippets are never evidence.
@@ -104,12 +128,12 @@ def fetch_page(url: str) -> dict:
                     published = str(tag.get("content", "")) if tag else ""
                 product = bool(re.search(r'"@type"\s*:\s*"(?:Product|Offer)"', html))
                 return {"url": url, "text": text[:24000], "published": published,
-                        "product": product}
+                        "product": product, "qualifiers": sorted(qualifiers(text))}
             finally:
                 conn.close()
                 sock.close()
         raise ValueError("too many redirects")
-    except (OSError, ValueError, LookupError, http.client.HTTPException):
+    except Exception:  # one broken page/extractor must not discard the other results
         return {}
 
 
@@ -117,25 +141,37 @@ def collect(query: str) -> list[dict]:
     # Pin the engine instead of DDGS auto selecting undisclosed providers.
     results = DDGS(timeout=5).text(query, max_results=5, region="us-en", backend="duckduckgo")
     urls = list(dict.fromkeys(r["href"] for r in results if r.get("href")))[:3]
+    def isolated_fetch(url):
+        try:
+            return fetch_page(url)
+        except Exception:
+            return {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
-        pages = list(pool.map(fetch_page, urls))
-    return [{**page, "text": evidence_excerpt(page["text"], query, 4000)}
-            for page in pages if page]
+        pages = list(pool.map(isolated_fetch, urls))
+    usable = []
+    for page in pages:
+        if isinstance(page, dict) and isinstance(page.get("text"), str) and page["text"].strip():
+            excerpt = evidence_excerpt(page["text"], query, 4000)
+            if excerpt:
+                usable.append({**page, "full_text": page["text"], "text": excerpt})
+    return usable
 
 
 def main() -> None:
     # Parent bounds runtime and kills this disposable worker on cancellation.
-    query = json.loads(sys.stdin.buffer.read(4096))["query"]
     try:
+        query = json.loads(sys.stdin.buffer.read(4096))["query"]
         pages = collect(query)
     except Exception:
-        pages = []
+        pages = {"error": "lookup-failed"}
     print(json.dumps(pages))
 
 
 
 def evidence_excerpt(text: str, query: str, limit: int = 4000) -> str:
     """Keep the lead plus query-relevant paragraphs, in original document order."""
+    if not text.strip():
+        return ""
     if len(text) <= limit:
         return text
     terms = set(re.findall(r"[a-z0-9]{3,}", query.lower())) - {

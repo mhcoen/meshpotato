@@ -30,7 +30,7 @@ any key may appear in any section.
 | `ollama_keep_alive` | `30m` | How long Ollama keeps the model loaded between replies; the example config uses `24h`, since a cold load costs 10 to 15 s on the first reply after a lull |
 | `openai_base_url` | `http://127.0.0.1:1234/v1` | OpenAI compatible server, when `backend = "openai"` |
 | `temperature` | `0.6` | Sampling temperature |
-| `max_tokens` | `80` | Ordinary reply output token limit; web replies allow 384 tokens for the internal JSON answer and supporting quote, with the same radio text cap |
+| `max_tokens` | `80` | Ordinary reply output token limit; the shipped backends allow 384 tokens for web JSON and its quote, with the same radio text cap; adapters without a token override retain their configured limit |
 | `model_timeout_s` | `25.0` | One total deadline shared by web retrieval, initial generation and every shortening/content retry; retrieval uses at most 12 seconds of this budget |
 | `web_enabled` | `true` | Automatic current-information lookup and `/web`; sends the question to DuckDuckGo and fetches up to three public result pages |
 | `web_location` | `Madison, Wisconsin` | Default location for local weather/hours questions without an explicit location; dates use the computer's local timezone |
@@ -46,7 +46,7 @@ any key may appear in any section.
 | `fortune_cutoff_min` | `30` | Keep retrying a deferred fortune until this long after the slot, then skip the day |
 | `fortune_prefix` | `Fortune: ` | Lead-in on the post |
 | `fortune_prompt` | see example config | The request to the model; must contain `{subject}`, may use `{date}`; a blocked formatted prompt is a startup configuration error when fortunes are enabled |
-| `fortune_fallback` | `The mesh is quiet this morning, and so is your fortune.` | Checked fallback if generation is empty, oversized, or fails content checks after retries |
+| `fortune_fallback` | `A small kindness will return wearing a tiny party hat.` | Checked fallback if generation is empty, oversized, or fails content checks after retries |
 | `adaptive_enabled` | `true` | Scale the global rate by channel load |
 | `utilization_poll_s` | `10.0` | Seconds between radio statistics polls |
 | `utilization_window_s` | `120.0` | Window for the duty cycle |

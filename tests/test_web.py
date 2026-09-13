@@ -22,7 +22,7 @@ TEXT = "The new 8 GB board is listed at $125 before tax. Delivery costs extra. C
 PAGE = {"url": "https://shop.example.com/board", "text": TEXT, "product": True}
 
 
-def draft(answer="The 8 GB board is listed at $125", quote=TEXT, source=1):
+def draft(answer="The 8 GB board is listed at $125 before tax", quote=TEXT, source=1):
     return json.dumps(dict(source=source, quote=quote, answer=answer))
 
 
@@ -64,7 +64,7 @@ def test_hostile_pages_are_not_model_evidence(text):
 def test_quote_citation_and_numeric_support():
     sources = usable_sources([PAGE], InjectionGate(), "price?", NOW)
     answer, citation = supported_answer(draft(), sources)
-    assert answer == "The 8 GB board is listed at $125 (shop.example.com)."
+    assert answer == "The 8 GB board is listed at $125 before tax (example.com)."
     assert citation == {"url": PAGE["url"], "quote": TEXT}
     assert supported_answer("```json\n" + draft() + "\n```", sources)[0] == answer
     for raw in (draft(source=8), draft(quote="This quote is invented."), draft(answer="It is $95"),
@@ -100,7 +100,7 @@ async def test_web_question_searches_then_sends_one_bounded_cited_sentence(harne
     assert "Alice" not in query and question in query
     assert len(h.sent) == len(h.backend.calls) == 1
     text = h.sent[0][1]
-    assert text == "@[Alice] The 8 GB board is listed at $125 (shop.example.com)."
+    assert text == "@[Alice] The 8 GB board is listed at $125 before tax (example.com)."
     assert len(f"{h.cfg.bot_name}: {text}".encode()) <= 160
     assert any(e["event"] == "web_answer" and e["url"] == PAGE["url"] for e in h.records)
     assert TEXT in h.backend.calls[0][-1]["content"]
@@ -123,12 +123,12 @@ async def test_bad_web_quote_twice_is_unverified_not_a_model_apology(harness):
     assert h.service.stats.model_errors == 0
 
 
-async def test_web_content_still_gets_the_normal_jab_check(harness):
+async def test_web_jab_is_refused_by_evidence_validation(harness):
     raw = draft(answer="You are an idiot, the board is $125")
     h = harness(web_enabled=True, backend=FakeBackend(reply=raw))
     h.service.web.search = AsyncMock(return_value=[PAGE])
-    assert await h.say("Alice: Current board price?") is Decision.DROP_BAD_REPLY
-    assert not h.sent and h.limiter.snapshot()["global_tokens"] == 1
+    assert await h.say("Alice: Current board price?") is Decision.ANSWERED
+    assert h.sent == [(1, "@[Alice] " + UNVERIFIED)]
 
 
 async def test_web_query_sends_no_history_names_or_operator_facts(harness):
@@ -141,10 +141,10 @@ async def test_web_query_sends_no_history_names_or_operator_facts(harness):
 
 
 @pytest.mark.parametrize("pages", [[], [{**PAGE, "product": False}]])
-async def test_missing_or_nonproduct_price_evidence_never_calls_model(harness, pages):
+async def test_explicit_missing_or_nonproduct_price_evidence_never_calls_model(harness, pages):
     h = harness(web_enabled=True)
     h.service.web.search = AsyncMock(return_value=pages)
-    assert await h.say("Alice: Current board price?") is Decision.ANSWERED
+    assert await h.say("Alice: /web Current board price?") is Decision.ANSWERED
     assert not h.backend.calls
     assert h.sent == [(1, "@[Alice] " + UNVERIFIED)]
 
@@ -177,9 +177,10 @@ async def test_search_and_model_share_one_deadline(harness):
         await asyncio.sleep(0.04)
         return [PAGE]
     h.service.web.search = search
-    assert await h.say("Alice: Current board price?") is Decision.APOLOGY
+    assert await h.say("Alice: Current board price?") is Decision.ANSWERED
     assert len(h.backend.calls) == 1
-    assert h.inbound_records()[-1]["model_error"] == "timeout"
+    assert any(r["event"] == "generation_budget_exhausted" for r in h.records)
+    assert h.service.stats.model_errors == 0
 
 
 async def test_search_timeout_cancels_retrieval_and_reports_unverified(harness):
@@ -247,6 +248,8 @@ def test_nonweb_and_credential_urls_are_rejected(url):
 def test_fetch_pins_public_ip_preserves_tls_host_and_blocks_private_redirect(monkeypatch, redirect):
     addresses, tls_hosts = [], []
     class Sock:
+        def settimeout(self, value):
+            pass
         def close(self):
             pass
     class Context:
@@ -257,8 +260,12 @@ def test_fetch_pins_public_ip_preserves_tls_host_and_blocks_private_redirect(mon
         status = 302 if redirect else 200
         def getheader(self, key, default=""):
             return {"location": "https://private.example/", "content-type": "text/plain"}.get(key, default)
-        def read(self, limit):
-            assert limit == 1_000_001
+        done = False
+        def read1(self, limit):
+            assert limit <= 65536
+            if self.done:
+                return b""
+            self.done = True
             return TEXT.encode()
     class Connection:
         def __init__(self, host, port, timeout):

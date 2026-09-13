@@ -273,10 +273,10 @@ class Config:
     @property
     def help_pages(self) -> tuple[str, str]:
         return (
-            "1/2 Ask about LoRa or reception. "
-            f"{self.command_prefix}{WEB_COMMAND} searches the web; "
-            f"{self.command_prefix}{ROLL_COMMAND} rolls dice; "
-            f"{self.command_prefix}{MAGIC8_COMMAND} answers yes/no questions.",
+            "1/2 Ask about LoRa/reception; current questions may leave mesh for web search; "
+            f"{self.command_prefix}{WEB_COMMAND} searches; "
+            f"{self.command_prefix}{ROLL_COMMAND} dice; "
+            f"{self.command_prefix}{MAGIC8_COMMAND} yes/no.",
             self.help_message,
         )
 
