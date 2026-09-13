@@ -34,7 +34,7 @@ async def test_roll_obeys_trigger_and_custom_command_prefix(harness):
     h = harness(trigger_prefix="!ai ", command_prefix="!")
     assert await h.say("Alice: !roll") is Decision.DROP_NO_TRIGGER
     assert await h.say("Alice: !ai !roll") is Decision.ANSWERED_ROLL
-    assert "!roll rolls dice;" in h.cfg.help_pages[0]
+    assert "!roll dice;" in h.cfg.help_pages[0]
     assert all("!roll 3" not in page for page in h.cfg.help_pages)
     assert len(h.sent) == 1 and not h.backend.calls
 
@@ -46,7 +46,7 @@ async def test_unknown_command_does_not_roll(harness, monkeypatch):
     monkeypatch.setattr("bot.service.random.randint", unexpected)
     h = harness(global_burst=2, sender_burst=2)
     assert await h.say("Alice: /role") is Decision.ANSWERED_HELP
-    assert h.sent == [(1, page) for page in h.cfg.help_pages]
+    assert h.sent == [(1, "Unknown command; try /help.")]
 
 
 async def test_roll_injection_is_blocked_before_drawing(harness, monkeypatch):

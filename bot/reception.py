@@ -28,6 +28,44 @@ def asks_about_reception(prompt: str) -> bool:
     return bool(_RECEPTION_RE.search(prompt))
 
 
+_COUNT_WORDS = dict(zip("zero one two three four five six seven eight nine ten".split(), range(11)))
+_REPORT_WORDS = set("rssi snr dbm db hop hops count this your the message packet reports reported was is "
+                    "received at with and in by bot me copies may differ unavailable unknown".split()) | set(_COUNT_WORDS)
+_VALUE = r"(?:-?\d+(?:\.\d+)?|zero|one|two|three|four|five|six|seven|eight|nine|ten|unavailable|unknown)"
+_RADIO_VALUE = re.compile(rf"\b(rssi|snr)\s*(?:in\s+dbm?\s*)?(?::|=|is|was)?\s*({_VALUE})(?=\s|dbm?\b|[,.;)]|$)", re.I)
+_HOP_VALUE = re.compile(rf"\b(?:hop(?:s| count)?\s*(?::|=|is|was)?\s*({_VALUE})\b|({_VALUE})\s+hops?\b)", re.I)
+
+
+def is_plain_reception_report(text: str, context: str) -> bool:
+    """Conservative repeat exception for plain readings matching this question.
+
+    A reception question alone does not make an old joke safe to repeat. Only
+    a small report vocabulary and explicitly labelled current values qualify;
+    richer prose follows the ordinary repeat/retry path.
+    """
+    if not set(re.findall(r"[a-z]+", text.lower())) <= _REPORT_WORDS:
+        return False
+
+    def value(raw: str):
+        raw = raw.lower()
+        if raw in {"unknown", "unavailable"}:
+            return None
+        return _COUNT_WORDS[raw] if raw in _COUNT_WORDS else float(raw)
+
+    def readings(raw: str):
+        found = [(name.lower(), value(v)) for name, v in _RADIO_VALUE.findall(raw)]
+        found.extend(("hops", value(a or b)) for a, b in _HOP_VALUE.findall(raw))
+        return found
+
+    expected = dict(readings(context))
+    reported = readings(text)
+    if not reported or any(name not in expected or expected[name] != v for name, v in reported):
+        return False
+    # Reject additional, unlabelled numbers that have no matching measurement.
+    numbers = {float(n) for n in re.findall(r"-?\d+(?:\.\d+)?", text)}
+    return numbers <= {v for _, v in reported if v is not None}
+
+
 def _measurement(payload: dict[str, Any], key: str, low: float, high: float) -> str:
     # MeshCore exposes uppercase RSSI/SNR on CHANNEL_MSG_RECV, unlike RX logs.
     value = payload.get(key)

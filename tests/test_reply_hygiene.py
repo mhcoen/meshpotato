@@ -147,9 +147,9 @@ async def test_facts_describe_the_bot_truthfully(harness):
     h = harness(persona_timeout_min=120)
     await h.say("Alice: will you stay serious forever?")
     system = h.backend.calls[0][0]["content"]
-    assert "reverts to /funny on its own after 120 minutes" in system
+    assert "reverts to /nice on its own after 120 minutes" in system
     assert "/reset restores it at once" in system
-    assert "no clock and no internet access" in system
+    assert "Web lookup is disabled" in system
 
 
 # ---- after the reviewer: a rejected reply never turns into the fallback or the apology ----

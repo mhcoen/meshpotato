@@ -22,8 +22,9 @@ def test_defaults_match_the_agreed_setup():
     assert cfg.global_rate_per_min == 4.0
     assert cfg.sender_rate_per_min == 4.0
     assert cfg.injection_threshold == 0.45
-    assert cfg.default_persona == "funny" and set(cfg.personas) == {"funny", "snarky", "marvin", "pirate", "haiku", "serious"}
+    assert cfg.default_persona == "nice" and set(cfg.personas) == {"nice", "funny", "snarky", "marvin", "pirate", "haiku", "serious"}
     assert cfg.persona_timeout_min == 120 and cfg.command_prefix == "/"
+    assert cfg.model_timeout_s == 25.0 and cfg.web_enabled is True
     assert cfg.adaptive_enabled is True
     assert (cfg.duty_low, cfg.duty_high, cfg.tx_duty_budget) == (0.05, 0.15, 0.02)
     assert (cfg.utilization_poll_s, cfg.utilization_window_s) == (10.0, 120.0)
@@ -163,6 +164,10 @@ async def test_openai_backend_posts_chat_completions():
     assert body["stream"] is False
     assert body["model"] == "m"
     assert body["messages"] == [{"role": "user", "content": "2+2?"}]
+    await backend.complete([{"role": "user", "content": "Web evidence"}], max_tokens=384)
+    assert json.loads(seen["json"])["max_tokens"] == 384
+    await backend.complete([{"role": "user", "content": "Normal reply"}])
+    assert json.loads(seen["json"])["max_tokens"] == 50  # override does not leak into ordinary replies
     await backend.aclose()
 
 

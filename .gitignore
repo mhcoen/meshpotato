@@ -5,6 +5,7 @@ __pycache__/
 .pytest_cache/
 config.toml
 *.jsonl
+*.debug
 *.sqlite3
 *.sqlite3-journal
 *.sqlite3-wal

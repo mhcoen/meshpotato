@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "meshpotato"
-version = "1.5.0"
+version = "1.7.0"
 description = "MeshCore channel bot that answers messages with a local LLM, with a prompt injection gate"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -26,6 +26,11 @@ dependencies = [
   "textual>=1.0",
   "confusables>=1.2",
   "psutil>=6,<8",
+  "ddgs>=9.16,<10",
+  "trafilatura>=2.2,<3",
+  "beautifulsoup4>=4.14,<5",
+  "certifi>=2024.2.2",
+  "tld>=0.13,<1",
 ]
 
 [project.urls]
@@ -46,7 +51,7 @@ meshai = "bot.cli:main" # compatibility with existing launch scripts
 packages = ["bot"]
 
 [tool.setuptools.package-data]
-bot = ["radio_reference.toml"]
+bot = ["radio_reference.toml", "EPISODIC-LICENSE"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

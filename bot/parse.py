@@ -21,10 +21,11 @@ def parse_channel_text(text: str) -> ParsedMessage:
     """Parse exactly as the upstream meshcore example does.
 
     ``sender`` is everything before the first colon, stripped. ``body`` is everything
-    after it, stripped, or empty when there is no colon at all.
+    after it, with whitespace collapsed, or empty when there is no colon at all.
+    The original text remains available for structural checks and diagnostics.
     """
     sender = text.split(":", 1)[0].strip()
-    body = text.split(":", 1)[1].strip() if ":" in text else ""
+    body = " ".join(text.split(":", 1)[1].split()) if ":" in text else ""
     return ParsedMessage(sender=sender, body=body, raw=text)
 
 

@@ -20,6 +20,7 @@ from serial import SerialException
 from bot import __version__
 from bot.backends import make_backend
 from bot.config import Config, ConfigError, load_config
+from bot.debuglog import debug_handler
 from bot.guard import InjectionGate
 from bot.history import History
 from bot.jsonlog import EventLog
@@ -290,7 +291,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         try:
             with SingleInstance() as instance:
                 instance.stop_others()
-            print("Mesh Potato stopped; no other bot instances remain.")
+            print("Mesh Potato check complete; no other bot instances remain.")
             return 0
         except (InstanceError, OSError, psutil.Error) as exc:
             print(f"process error: {exc}", file=sys.stderr)
@@ -323,10 +324,7 @@ def _main_run(args, cfg: Config, references: tuple[Reference, ...]) -> int:
         # meshcore calls logging.basicConfig at import, so configure handlers explicitly.
         root = logging.getLogger()
         root.setLevel(logging.DEBUG)
-        handler: logging.Handler = (
-            logging.FileHandler(f"{log_path}.debug", encoding="utf-8") if log_path else logging.StreamHandler(sys.stderr)
-        )
-        handler.setFormatter(logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s"))
+        handler = debug_handler(f"{log_path}.debug" if log_path else None, sys.stderr)
         for existing in list(root.handlers):
             root.removeHandler(existing)
         root.addHandler(handler)

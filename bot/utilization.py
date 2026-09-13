@@ -146,6 +146,7 @@ class UtilizationMonitor:
         self.current: Utilization | None = None
         self.polls = 0
         self.errors = 0
+        self._consecutive_errors = 0
         self._task: asyncio.Task[None] | None = None
 
     # ------------------------------------------------------------------ lifecycle
@@ -171,9 +172,7 @@ class UtilizationMonitor:
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # noqa: BLE001 - never let the monitor kill the bot
-                self._reset_window()
-                self.errors += 1
-                self.log.emit("utilization_error", error=f"{type(exc).__name__}: {exc}")
+                self._sample_error(f"{type(exc).__name__}: {exc}")
             await asyncio.sleep(self.poll_s)
 
     # ------------------------------------------------------------------ sampling
@@ -183,6 +182,18 @@ class UtilizationMonitor:
         self._rx_streak = Streaks()
         self._tx_streak = Streaks()
 
+    def _sample_error(self, error: str, command: str = "") -> None:
+        self._reset_window()
+        self.errors += 1
+        self._consecutive_errors += 1
+        self.log.emit("utilization_error", command=command, error=error,
+                      consecutive=self._consecutive_errors)
+        if self._consecutive_errors >= 3:
+            # Stale telemetry must not latch the channel off forever. Keep a
+            # reduced rate until fresh samples establish a new policy window.
+            self._set_level("half", duty=0.0, reason="stats-unavailable")
+            self.current = None
+
     async def sample(self) -> Utilization | None:
         """Poll both counters once, update the window, apply the policy. Returns the reading."""
         self.polls += 1
@@ -190,9 +201,7 @@ class UtilizationMonitor:
         packets = await self.mc.commands.get_stats_packets()
         for name, res in (("get_stats_radio", radio), ("get_stats_packets", packets)):
             if res is None or res.type == EventType.ERROR:
-                self._reset_window()
-                self.errors += 1
-                self.log.emit("utilization_error", command=name, error=str(getattr(res, "payload", None)))
+                self._sample_error(str(getattr(res, "payload", None)), name)
                 return self.current
         r, p = radio.payload or {}, packets.payload or {}
         sample = Sample(
@@ -205,6 +214,7 @@ class UtilizationMonitor:
             last_rssi=r.get("last_rssi"),
             last_snr=r.get("last_snr"),
         )
+        self._consecutive_errors = 0
         if self._samples and (
             sample.tx_air < self._samples[-1].tx_air
             or sample.rx_air < self._samples[-1].rx_air

@@ -85,11 +85,11 @@ async def test_start_announcement_resumes_after_congestion(harness):
 
 
 async def test_start_announcement_detector_exception_blocks_without_token(harness, monkeypatch):
+    h = harness()  # Configuration passed before the detector became unavailable.
     def broken(*args, **kwargs):
         raise RuntimeError("detector unavailable")
 
     monkeypatch.setattr("bot.guard.detect_prompt_injection", broken)
-    h = harness()
     await h.service.start()
     await asyncio.wait_for(h.service._startup_announcement_task, 1)
     assert h.sent == [] and h.limiter.snapshot()["global_tokens"] == 1

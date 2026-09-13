@@ -8,12 +8,16 @@ bots from silently overwriting each other's snapshots in the same file.
 from __future__ import annotations
 
 import json
+import errno
 import math
+import os
 import sqlite3
+import stat
 from dataclasses import asdict
 
 from bot.history import History, HistoryEntry
 from bot.memory import PersonMemory, Round
+from bot.text_safety import has_block_marker, safe_sender
 
 
 class StateError(RuntimeError):
@@ -21,6 +25,8 @@ class StateError(RuntimeError):
 
 
 def _allowed(gate, text: str) -> bool:
+    if has_block_marker(text):
+        return False
     try:
         verdict = gate.check(text)
     except Exception as exc:
@@ -38,6 +44,20 @@ class StateStore:
         self._generation = 0
         self._last_snapshot = None
         try:
+            if path != ":memory:":
+                try:
+                    fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+                except OSError as exc:
+                    if exc.errno == errno.ELOOP:
+                        raise StateError("state_db must not be a symlink; use the target file's path") from exc
+                    raise
+                try:
+                    info = os.fstat(fd)
+                    if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid():
+                        raise StateError("state database must be a regular file owned by your user")
+                    os.fchmod(fd, 0o600)
+                finally:
+                    os.close(fd)
             self._db = sqlite3.connect(path, timeout=0.1)
             db = self._db
             application = db.execute("PRAGMA application_id").fetchone()[0]
@@ -63,8 +83,13 @@ class StateStore:
             self.close()
             raise StateError(f"{path}: {exc}") from exc
 
-    def load(self, history: History, memory: PersonMemory, gate) -> None:
-        """Load bounded rows, re-check saved text, then apply age and size limits."""
+    def load(self, history: History, memory: PersonMemory, gate) -> dict[str, int]:
+        """Restore bounded context and return counts rejected by safety checks.
+
+        Counts exclude age/size pruning. An unsafe sender discards a whole
+        person row without decoding its rounds, counted only as a person.
+        """
+        discarded = dict(discarded_history=0, discarded_people=0, discarded_rounds=0)
         try:
             entries = []
             rows = self._db.execute(
@@ -75,8 +100,10 @@ class StateStore:
                 if not isinstance(sender, str) or not isinstance(text, str) or not math.isfinite(at):
                     raise ValueError("invalid history row")
                 entry = HistoryEntry(sender, text)
-                if _allowed(gate, entry.line()):
+                if safe_sender(sender) and _allowed(gate, f"{sender}: {text}"):
                     entries.append((at, entry))
+                else:
+                    discarded["discarded_history"] += 1
             people = []
             rows = self._db.execute(
                 "SELECT sender, rounds FROM people ORDER BY position DESC LIMIT ?", (memory.max_people,),
@@ -84,6 +111,9 @@ class StateStore:
             for sender, encoded in reversed(rows):
                 if not isinstance(sender, str):
                     raise ValueError("invalid sender")
+                if not safe_sender(sender):
+                    discarded["discarded_people"] += 1
+                    continue
                 decoded = json.loads(encoded)
                 if not isinstance(decoded, list):
                     raise ValueError("invalid rounds")
@@ -97,9 +127,12 @@ class StateStore:
                     text = f"{sender}: {r.source_prompt or r.prompt}\nasked: {r.prompt}\nreplied: {r.reply}"
                     if _allowed(gate, text):
                         rounds.append(r)
+                    else:
+                        discarded["discarded_rounds"] += 1
                 people.append((sender, rounds))
             history.restore(entries)
             memory.restore(people)
+            return discarded
         except (sqlite3.Error, ValueError, TypeError) as exc:
             raise StateError(f"cannot restore conversation state: {exc}") from exc
 

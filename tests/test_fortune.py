@@ -100,7 +100,7 @@ def make_scheduler(h, wall, **kw):
     return s, records
 
 
-@pytest.mark.parametrize("active", ["pirate", "serious"])
+@pytest.mark.parametrize("active", ["nice", "pirate", "serious"])
 async def test_fire_posts_in_funny_voice_without_changing_chat_persona(harness, active):
     h = harness(backend=FakeBackend(reply="You will find a sock."), global_burst=5, sender_burst=5)
     await h.say(f"Alice: /{active}")
