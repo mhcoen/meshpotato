@@ -346,6 +346,29 @@ what the radio heard that the bot never received (see
 level log to `<log file>.debug`. Stop it with Ctrl-C or SIGTERM; the bot
 unsubscribes, stops message fetching, and closes the port.
 
+Only one Mesh Potato instance runs per login user on a computer, even across
+different terminals, checkouts, or config files. Starting `meshpotato` stops the
+previous instance and waits for its radio connection to close before proceeding.
+It also finds older instances launched with the former `meshai` command. Shutdown
+checks again for leftover older instances. A process that ignores the shutdown
+request for 15 seconds is killed; if it still cannot be stopped, the new bot
+refuses to start.
+
+To stop the bot from **any terminal**, without finding its original tab or loading
+a config file:
+
+```bash
+.venv/bin/meshpotato --stop
+```
+
+`meshpotato` is the current command name. `meshai` remains a compatibility alias
+and uses the same process protection. The lock is kept in
+`~/.meshpotato/instance.lock`; a crash releases it automatically. Leave that file
+in place, since deleting a live lock can defeat coordination between launches.
+This controls your user's processes on this computer, not bots on other hosts or
+under other accounts. Disable any external service that automatically restarts
+the bot if you want it to stay stopped.
+
 After a successful start, the bot announces its name, package version, configured
 LLM, and repository link in one message, for example:
 
