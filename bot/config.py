@@ -19,7 +19,7 @@ from typing import Any
 
 from bot.fortune import parse_hhmm
 from bot.guard import InjectionGate
-from bot.personas import BUILTIN_PERSONAS, FORGET_COMMAND, HELP_COMMAND, MAGIC8_COMMAND, NAME_RE, RESET_COMMAND, ROLL_COMMAND, WEB_COMMAND, build_help
+from bot.personas import BUILTIN_PERSONAS, FORGET_COMMAND, HELP_COMMAND, MAGIC8_COMMAND, NAME_RE, RESET_COMMAND, ROLL_COMMAND, WEB_COMMAND
 from bot.reply import plain_ascii
 
 ENV_PREFIX = "MESHPOTATO_"
@@ -224,10 +224,11 @@ class Config:
             errors.append("persona_reset_message must not be empty")
         room = self.reply_max_chars - len("@[") - 20 - len("] ")  # a 20 char sender name
         if self.reply_max_chars > 0:
-            for number, page in enumerate(self.help_pages, 1):
+            for topic, page in {"index": self.help_message, **self.help_topics}.items():
                 if len(page) > self.reply_max_chars:
-                    suggestion = "shorten command_prefix" if number == 1 else "use fewer or shorter persona names or a shorter command_prefix"
-                    errors.append(f"help page {number} is {len(page)} chars but reply_max_chars is {self.reply_max_chars}; {suggestion}")
+                    suggestion = ("use fewer or shorter persona names or shorter prefixes" if topic == "voices"
+                                  else "shorten trigger_prefix or command_prefix")
+                    errors.append(f"help topic {topic} is {len(page)} chars but reply_max_chars is {self.reply_max_chars}; {suggestion}")
         if self.reply_max_chars > 0 and len(self.persona_reset_message) > room:
             errors.append("persona_reset_message must fit with room for a 20 character sender name")
         if self.max_tokens <= 0:
@@ -268,17 +269,29 @@ class Config:
 
     @property
     def help_message(self) -> str:
-        return build_help(list(self.personas), self.persona_timeout_min, self.command_prefix)
+        prefix = self.trigger_prefix + self.command_prefix
+        return "Help: " + " | ".join(f"{prefix}help {topic}" for topic in self.help_topics)
 
     @property
-    def help_pages(self) -> tuple[str, str]:
-        return (
-            "1/2 Ask about LoRa/reception; current questions may leave mesh for web search; "
-            f"{self.command_prefix}{WEB_COMMAND} searches; "
-            f"{self.command_prefix}{ROLL_COMMAND} dice; "
-            f"{self.command_prefix}{MAGIC8_COMMAND} yes/no.",
-            self.help_message,
-        )
+    def help_topics(self) -> dict[str, str]:
+        prefix = self.trigger_prefix + self.command_prefix
+        web = (f"Ask here; I'll search the web when needed. {prefix}web <question> requests a search. "
+               "Everything runs on my computer; no setup needed on yours.") if self.web_enabled else "Web search is disabled."
+        fun = f"{prefix}roll 3 8: roll 3 eight-sided dice (default 2 six-sided); {prefix}magic8 <question>: yes/no."
+        if self.fortune_enabled:
+            fun += " Daily fortunes: funny and sweet."
+        return {
+            "web": web,
+            "voices": " ".join(f"{prefix}{name}" for name in self.personas),
+            "fun": fun,
+            "privacy": (f"{prefix}forget clears personal memory of you, not shared history; "
+                        f"{prefix}reset restores the default voice for everyone."),
+        }
+
+    @property
+    def help_pages(self) -> tuple[str, ...]:
+        """All help displays for size checks; each request sends just one."""
+        return (self.help_message, *self.help_topics.values())
 
     @property
     def default_persona_text(self) -> str:

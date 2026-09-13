@@ -24,19 +24,19 @@ def test_help_fits_nondefault_names_and_command_prefixes(name, cap, prefix):
     for page in cfg.help_pages:
         assert len(page) <= cap
         assert len(f"{name}: {page}".encode()) <= 160
-    assert f"{prefix}roll" in cfg.help_pages[0]
-    assert f"{prefix}magic8" in cfg.help_pages[0]
-    assert f"{prefix}serious" in cfg.help_pages[1]
+    assert f"{prefix}roll" in cfg.help_topics["fun"]
+    assert f"{prefix}magic8" in cfg.help_topics["fun"]
+    assert f"{prefix}serious" in cfg.help_topics["voices"]
 
 
-def test_help_size_error_identifies_page_and_relevant_settings():
-    with pytest.raises(ConfigError, match="help page 1.*shorten command_prefix"):
+def test_help_size_error_identifies_topic_and_relevant_settings():
+    with pytest.raises(ConfigError, match="help topic index.*shorten trigger_prefix or command_prefix"):
         config_from_mapping({"port": "/dev/fake", "command_prefix": "!" * 40}, env={})
-    with pytest.raises(ConfigError, match="help page 2.*persona names") as exc:
+    with pytest.raises(ConfigError, match="help topic voices.*persona names") as exc:
         config_from_mapping({"port": "/dev/fake", "personas": {
-            "funny": "Funny voice.", **{f"personality{i}": "Custom voice." for i in range(10)},
+            "nice": "Kind voice.", **{f"personality{i}": "Custom voice." for i in range(12)},
         }}, env={})
-    assert "help page 1" not in str(exc.value)
+    assert "help topic index" not in str(exc.value)
 
 
 @pytest.mark.parametrize("configured,reported,cap", [

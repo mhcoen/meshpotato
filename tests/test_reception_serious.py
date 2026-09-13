@@ -209,7 +209,7 @@ async def test_serious_cannot_take_persona_text_from_channel(harness):
 def test_example_config_has_serious_and_help_pages_fit():
     cfg = load_config(Path(__file__).parents[1] / "config.example.toml", env={})
     assert cfg.personas["serious"] == BUILTIN_PERSONAS["serious"]
-    assert "/serious" in cfg.help_message
+    assert "/serious" in cfg.help_topics["voices"]
     assert all(len(page) <= cfg.reply_max_chars for page in cfg.help_pages)
 
 
@@ -218,9 +218,9 @@ async def test_help_omits_even_long_emoji_names_and_fits_wire(harness, name_byte
     h = harness(global_burst=2, sender_burst=2)
     sender = "\U0001f31f" * 6 + "Andy" + "x" * (name_bytes - 28)
     assert len(sender.encode("utf-8")) == name_bytes
-    assert await h.say(f"{sender}: /help") is Decision.ANSWERED_HELP
+    assert await h.say(f"{sender}: /help voices") is Decision.ANSWERED_HELP
     assert not h.backend.calls
-    assert h.sent == [(h.cfg.channel_idx, page) for page in h.cfg.help_pages]
+    assert h.sent == [(h.cfg.channel_idx, h.cfg.help_topics["voices"])]
     text = h.sent[-1][1]
     assert len(text) <= h.cfg.reply_max_chars
     assert len(f"{h.cfg.bot_name}: {text}".encode()) <= 160
@@ -235,7 +235,7 @@ async def test_explicit_persona_table_without_serious_keeps_unknown_command_beha
     assert h.service.active_persona == "nice"
     assert not h.backend.calls
     assert h.sent == [(h.cfg.channel_idx, "Unknown command; try /help.")]
-    assert "/serious" not in h.cfg.help_message
+    assert "/serious" not in h.cfg.help_topics["voices"]
 
 
 async def test_explicit_persona_table_with_serious_uses_operator_preset(harness):

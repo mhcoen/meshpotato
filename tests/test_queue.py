@@ -294,11 +294,8 @@ async def test_command_replies_wait_for_tokens(queued, clock, command, decision)
     await until(lambda: h.service.stats.queue_depth == 1)
     assert len(h.sent) == 1
     clock.advance(15)
-    if command == "/help":
-        await until(lambda: len(h.sent) == 2)
-        clock.advance(60)  # second page needs a fresh global and sender token
     assert await asyncio.wait_for(task, 1) is decision
-    assert len(h.sent) == (3 if command == "/help" else 2) and len(h.backend.calls) == 1
+    assert len(h.sent) == 2 and len(h.backend.calls) == 1
 
 
 @pytest.mark.parametrize("reply,error,decision", [
