@@ -179,7 +179,8 @@ class MeshPotatoApp(App[None]):
             "shutdown_error", "utilization_error", "reply_too_long", "persona_switch", "persona_reset",
             "announce", "announce_failed", "persona_timer_error", "fortune_scheduled", "fortune_posted",
             "fortune_deferred", "fortune_skipped", "fortune_error", "post", "post_error", "memory_forget",
-            "queued", "dequeued", "reply_retry",
+            "queued", "dequeued", "reply_retry", "sports_lookup",
+            "web_lookup", "web_source_rejected", "web_retry", "web_answer", "generation_budget_exhausted",
             "state_restored", "state_error",
         ):
             details = {k: v for k, v in record.items() if k not in ("ts", "event")}

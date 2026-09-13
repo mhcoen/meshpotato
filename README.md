@@ -126,7 +126,7 @@ answers at most two consecutive direct-mention requests from one sender. Send
 a plain message to continue; on a channel with a trigger, include that trigger.
 An unknown command receives one short help hint.
 
-Questions about current prices, weather, opening hours, news, and similar
+Questions about sports scores, current prices, weather, opening hours, news, and similar
 changing facts trigger a web lookup. Use `/web your question` when you want to
 request a search explicitly. For example, `/web How much is an 8-foot treated
 4x4 at Menards Madison East today?` searches for current supporting pages.
@@ -135,7 +135,28 @@ requests such as "What should I cook tonight?" and "Who is W1MHC?" stay with
 the model and configured local facts. Include the exact product and store location; sites that require a login,
 JavaScript, or a bot check may prevent the bot from finding an answer.
 
-The bot reads up to three public pages and produces one short sentence with
+For sports scores, ask "What's the score of the Packers game?" or use
+`/web Packers score`. NFL, NBA, WNBA, MLB, and NHL scores come directly from
+ESPN's structured scoreboards. The reply includes both teams and scores, game
+status (quarter/period/inning, halftime, final, scheduled, or postponed), game
+date, and the local time the bot fetched the ESPN snapshot. The model does not
+invent, infer, or rewrite scores. For example, the format is
+`Packers 19, Vikings 10; Q3 10:55, 09/13 (ESPN 22:16 CDT).`
+
+Score requests default to games dated today in the bot computer's timezone.
+You can specify `yesterday`, `tomorrow`, or an ISO date such as
+`/web Packers score 2026-09-13`. Include the league or opponent if the team name
+is ambiguous; multiple matching games require clarification. Other date formats,
+unsupported leagues, missing games, and unavailable feeds produce an honest
+inability notice. Scheduled games show their start time instead of zero scores.
+Scores are snapshots reported by ESPN, whose feed can lag; the displayed fetch
+time is not a promise of the provider's update time. Each request fetches again,
+unchanged scores may be repeated, and a snapshot held more than 60 seconds is
+dropped with `stale-sports-score` instead of transmitted. No paid API key is
+needed. The same 12-second retrieval cap, 25-second overall budget, radio rate
+limits, and outbound content checks apply. A model outage does not block scores.
+
+For other web questions, the bot reads up to three public pages and produces one short sentence with
 the registrable source domain (for example, `example.co.uk`, without subdomain
 text). Hostnames containing recognized abusive phrases are rejected. Full source
 URLs and supporting quotations are recorded in the local JSON log. An explicit
@@ -145,19 +166,26 @@ model response with a no-current-facts instruction. Only an unchanged static
 operator fact can be used from that fallback; other candidates become the fixed
 inability line, so adding "I can't verify" cannot sneak a current claim through.
 Fixed web notices may repeat, subject to the normal radio rate limits.
+The terminal monitor and JSON log include `sports_lookup`, `web_lookup`, source
+rejections, retries, and budget exhaustion so lookup failures can be diagnosed.
 Search snippets alone are never supporting evidence.
 Current price answers require a page with product/offer metadata; a fetched
 listing still does not prove local stock or the price at a particular store.
 
-Web lookup uses the free DuckDuckGo backend of DDGS and extraction adapted from
+General web lookup uses the free DuckDuckGo backend of DDGS and extraction adapted from
 Episodic's Muse mode, without installing Episodic. It requires internet access
-on the bot's computer. The current question is sent to DuckDuckGo, and the
+on the bot's computer. For general searches, the current question is sent to DuckDuckGo, and the
 result pages are fetched directly. Sender names, channel history, radio keys,
 and operator notes are not added to the search query. Anything a person puts
 in their question can leave the mesh. The bot's computer handles the internet
 connection and search; the person asking needs no internet access, account, app,
 or extra setup. The `/help web` topic makes this clear. Set `web_enabled = false`
-to disable web lookup.
+to disable web lookup, including scores. Sports lookups request dated ESPN
+scoreboards and match team names locally; they do not send the question to a
+search engine. ESPN's public endpoint is an external dependency and may change.
+Its JSON requests use a compatibility user-agent identifying Mesh Potato,
+verified HTTPS, public-address pinning, a 1 MB cap, and no redirects; cached
+responses reporting an age over 60 seconds are refused.
 `web_location` defaults to Madison, Wisconsin and supplies a location for local
 weather/hours questions that omit one; specify a location in the question to
 override it. Dates use the bot computer's local timezone.
@@ -460,7 +488,7 @@ After a successful start, the bot announces its name, package version, configure
 LLM, and repository link in one message, for example:
 
 ```text
-Mesh Potato v1.7.0, LLM: qwen3:30b-a3b-instruct-2507-q4_K_M, https://github.com/mhcoen/meshpotato Try /help.
+Mesh Potato v1.7.1, LLM: qwen3:30b-a3b-instruct-2507-q4_K_M, https://github.com/mhcoen/meshpotato Try /help.
 ```
 
 The package version is also available locally with `meshpotato --version`.
