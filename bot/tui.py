@@ -155,9 +155,11 @@ class MeshPotatoApp(App[None]):
                 extra = f" [{record.get('point')} score={record.get('injection_score')} {record.get('injection_rules')}]"
             elif decision == "dropped:rate-limited":
                 extra = f" [{record.get('reason')}]"
+            elif decision == "dropped:bad-reply":
+                extra = f" [{record.get('reason')}] {record.get('reply')}"
             elif decision == "persona-switched":
                 extra = f" -> persona {record.get('persona')}"
-            elif decision in ("answered", "answered:too-long-fallback", "answered:help", "answered:reset", "answered:forget", "apology"):
+            elif decision.startswith("answered") or decision == "apology":
                 extra = f" -> {record.get('reply')}"
             line = (
                 f"{ts} {record.get('sender', '?')!s:<16} hops={record.get('path_len')} "
@@ -177,7 +179,7 @@ class MeshPotatoApp(App[None]):
             "shutdown_error", "utilization_error", "reply_too_long", "persona_switch", "persona_reset",
             "announce", "announce_failed", "persona_timer_error", "fortune_scheduled", "fortune_posted",
             "fortune_deferred", "fortune_skipped", "fortune_error", "post", "post_error", "memory_forget",
-            "queued", "dequeued",
+            "queued", "dequeued", "reply_retry",
             "state_restored", "state_error",
         ):
             details = {k: v for k, v in record.items() if k not in ("ts", "event")}

@@ -25,7 +25,15 @@ immediately and prevents older in-flight requests from restoring it; it does not
 erase shared history or logs.
 
 This reduces duplicated examples that can encourage parroting, but does not
-guarantee novel answers. There is no generated summarization or extra model call.
+guarantee novel answers, and small models copy their own earlier replies out of
+these blocks regardless of instructions. A reply check on the shaped output
+catches a repeat of a recent reply, an echo of the message, a `@[` mention, a
+joke at the person asking, or a radio metaphor on a question that is not about
+radio, gives the model one retry with the problem spelled out, and otherwise
+sends nothing; see the README's message handling steps for what the two content
+checks look for and what they cannot see. There is no generated
+summarization; the retry is one more generation, and each generation can carry
+its own shortening retries.
 Existing memory population, age, and size limits remain unchanged. Conversation
 state is backed by a local SQLite file and survives restarts; restored text is
 re-checked by the injection gate. Channel history additionally expires after one
@@ -56,7 +64,9 @@ settings are a startup snapshot; local Madison/operator information continues
 to come from the existing `facts` config field. The bot cannot infer a remote
 node's current settings, status, or a guaranteed range from reference material.
 General facts, the companion's startup settings, and operator notes are labelled
-separately in the system prompt.
+separately in the system prompt. The general facts and startup settings are
+included only for a question that mentions radio; a note on how the bot works
+and the operator notes are included for every question.
 It still generates its answer with an LLM and can get things wrong.
 
 ## Maintaining the reference collection

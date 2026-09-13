@@ -10,7 +10,7 @@ any key may appear in any section.
 | `port` | required | Serial device of the companion radio |
 | `channel_idx` | `1` | Channel slot on the radio to serve |
 | `bot_name` | `Mesh Potato` | Must equal the radio's node name |
-| `trigger_prefix` | `""` | Off by default, so every message is answered; `"!ai "` answers only messages beginning with that exact text |
+| `trigger_prefix` | `""` | Off by default, so every message is a prompt, except bare reactions and lines mentioning someone else, and the model may pass on remarks between other people; `"!ai "` answers only messages beginning with that exact text |
 | `reply_max_chars` | automatic | Omit to calculate 160 minus the UTF-8 byte length of `bot_name` minus 2 (147 for Mesh Potato). Optionally set a smaller character cap, including the exact-name mention; every reply is also checked in UTF-8 bytes. |
 | `prompt_max_chars` | `160` | Longer prompts are dropped |
 | `reply_delay_s` | `8.0` | Seconds after a question before the reply is transmitted, jittered; see [Rate limits and channel load](../README.md#rate-limits-and-channel-load) |
@@ -27,7 +27,7 @@ any key may appear in any section.
 | `model` | `qwen3:30b-a3b-instruct-2507-q4_K_M` | Model name for the backend |
 | `ollama_host` | `http://127.0.0.1:11434` | Ollama server |
 | `ollama_think` | `off` | `off`, `on`, or `omit` for models that reject the option |
-| `ollama_keep_alive` | `30m` | How long Ollama keeps the model loaded between replies |
+| `ollama_keep_alive` | `30m` | How long Ollama keeps the model loaded between replies; the example config uses `24h`, since a cold load costs 10 to 15 s on the first reply after a lull |
 | `openai_base_url` | `http://127.0.0.1:1234/v1` | OpenAI compatible server, when `backend = "openai"` |
 | `temperature` | `0.6` | Sampling temperature |
 | `max_tokens` | `80` | Output token limit |

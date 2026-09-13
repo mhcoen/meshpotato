@@ -91,7 +91,11 @@ def _normalize_text(text: str) -> str:
     out = _INDEX_RE.sub(" index_ref ", out)
     out = _REPEATED_ALPHA_RE.sub(r"\1\1", out)
     out = _REPEATED_PUNCT_RE.sub(r"\1", out)
-    return re.sub(r"\s+", " ", out).strip()
+    # Keep line breaks: each channel line in an assembled context is scored as its own
+    # clause, so a directive at the start of a line is seen as such and the framing text
+    # in front of the history block cannot lend a line its verb.
+    out = re.sub(r"[^\S\n]+", " ", out)
+    return re.sub(r"\s*\n\s*", "\n", out).strip()
 
 
 # --------------------------------------------------------------------------- rules
@@ -100,8 +104,46 @@ _IMPERATIVE_RE = re.compile(
     r"\b(please\s+)?(click|open|go|read|find|share|send|delete|replace|type|input|upvote|leave|add|ignore|reveal|export|compile)\b",
     re.I,
 )
+# "ignore" alone is ordinary speech ("it likes to ignore me"); it counts as an
+# override only with an instruction-like object within a few words.
 _OVERRIDE_RE = re.compile(
-    r"\b(ignore|instead|rather than|must first|before typing|original (goal|instruction)|following (instruction|description)|regardless of)\b",
+    r"\b(ignore (?:\w+ ){0,3}(?:instructions?|rules?|prompts?|guidelines?|directions?|goals?|constraints?|restrictions?|"
+    r"polic(?:y|ies)|limits?|limitations?|safety|training|programming|guardrails?|filters?|system|context|history|"
+    r"everything|all of|the above|previous|prior|earlier)|instead|rather than|must first|before typing|"
+    r"original (goal|instruction)|following (instruction|description)|regardless of)\b",
+    re.I,
+)
+# Making the bot relay text: a directive speech verb at the start of the clause with a
+# quoted payload, "repeat after me", or a directive to tell everyone. Vocabulary alone is
+# not enough ("what does the firmware say about \"direct\" packets" is a question).
+# Transcript lines and history entries read "Sender: text"; a sender name has no colon, so
+# everything up to the first colon on the line is the prefix, whatever its length.
+_DIRECTIVE_LEAD = r"^(?:[^:\n]*:\s*)?(?:(?:please|just|now|ok|okay|hey|yo|so|and|bot|potato|mesh potato)[,:!]?\s+)*"
+_PAYLOAD_GAP = r"(?:[^\"\u201c\u201d\n]{0,60})"  # "the following sentence exactly: " and the like
+_RELAY_RE = re.compile(
+    _DIRECTIVE_LEAD + r"(?:(?:can|could|would|will) you\s+)?(?:please\s+)?"
+    r"(?:repeat|say|write|type|print|echo|post|send|announce|broadcast|tell (?:everyone|everybody|them|us|the channel)|"
+    r"reply with|respond with|answer with)\b" + _PAYLOAD_GAP + r"[\"\u201c\u201d]"
+    r"|\brepeat after me\b"
+    r"|" + _DIRECTIVE_LEAD + r"(?:(?:can|could|would|will) you\s+)?(?:please\s+)?(?:tell|say|announce|post|broadcast|repeat|write|send)\b.{0,40}"
+    r"\b(?:everyone|everybody|all of you|to all|(?:to|on) the (?:whole |entire )?channel|the channel that)\b",
+    re.I,
+)
+# Changing how the bot replies from now on. Each pattern needs the directive, not just the
+# temporal phrase: "I will use the roof antenna from now on" is a person talking.
+_STYLE_OVERRIDE_RE = re.compile(
+    r"\b(?:from now on|starting now|for the rest of (?:the|this) (?:day|night|conversation|chat|session)|until i say(?: otherwise| so)?)"
+    r",?\s+(?:you |always |never |only |please )*(?:reply|respond|answer|write|speak|talk|say|end|start|begin|call|refer|sign|address|use|add|include|put)\b"
+    r"|(?<!\bi )(?<!\bwe )(?<!\bhe )(?<!\bshe )(?<!\bthey )(?<!\bi will )(?<!\bi'll )"
+    r"\b(?:reply|respond|answer|write|speak|talk|say|call yourself|sign)\b[^.!?]{0,40}\b(?:from now on|starting now|until i say)\b"
+    r"|\b(?:write|make|keep|put|end|start|begin|give|reply|respond|answer|format|sign|prefix|suffix)\b[^.!?]{0,20}\b(?:all|every|each) (?:of )?your (?:replies|responses|messages|answers)\b"
+    r"|\b(?:all|every|each) (?:of )?your (?:replies|responses|messages|answers) (?:must|should|will|need to|have to|are to|shall) (?:be |now |end|start|begin|include|contain)"
+    r"|(?:" + _DIRECTIVE_LEAD + r"|\b(?:always|must|you must|you will|you should|you have to|now|from now on,?) )"
+    r"(?:reply|respond|answer|write|speak|talk|type) (?:only )?(?:in|using) (?:reverse|all caps|capital letters|uppercase|lowercase|"
+    r"pirate|french|spanish|german|japanese|chinese|russian|morse|binary|rhyme|rhymes|emoji|leetspeak|pig latin)\b"
+    r"|\bend (?:every|each|all) (?:of )?(?:your )?(?:reply|replies|response|responses|message|messages) with\b"
+    r"|\byour (?:new )?name is (?:now )?(?!not\b|fine\b|already\b)\w|\bcall yourself\b|\bpretend (?:to be|you are|you're|that you)\b"
+    r"|\bnew (?:rule|rules|instruction|instructions|persona|personality)\b",
     re.I,
 )
 _CONCEALMENT_RE = re.compile(
@@ -164,7 +206,15 @@ def _score_clause(clause: str) -> tuple[float, list[str]]:
     goal_rewrite = bool(_GOAL_REWRITE_RE.search(clause))
     right_place_strong = bool(_RIGHT_PLACE_STRONG_RE.search(clause))
     data_override = bool(_DATA_OVERRIDE_RE.search(clause))
+    relay = bool(_RELAY_RE.search(clause))
+    style_override = bool(_STYLE_OVERRIDE_RE.search(clause))
 
+    if relay:
+        score += 0.50
+        matched.append("relay_request")
+    if style_override:
+        score += 0.50
+        matched.append("style_override")
     if override and (imperative or action_target):
         score += 0.55
         matched.append("instruction_override")
@@ -196,7 +246,7 @@ def _score_clause(clause: str) -> tuple[float, list[str]]:
         matched.append("multi_signal_composition")
 
     if _BENIGN_FORM_GUIDE_RE.search(clause) and not (
-        secret_solicit or goal_rewrite or click_index or concealment or data_override
+        secret_solicit or goal_rewrite or click_index or concealment or data_override or relay or style_override
     ):
         score = max(0.0, score - 0.45)
         matched.append("benign_guard")

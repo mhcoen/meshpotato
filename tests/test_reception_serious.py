@@ -9,7 +9,7 @@ from bot.config import load_config
 from bot.guard import Verdict
 from bot.personas import BUILTIN_PERSONAS
 from bot.prompt import RECEPTION_BEGIN, RECEPTION_END
-from bot.reception import reception_context
+from bot.reception import asks_about_reception, reception_context
 from bot.service import Decision
 from tests.conftest import FakeBackend
 from tests.test_queue import until
@@ -250,3 +250,21 @@ async def test_explicit_persona_table_with_serious_uses_operator_preset(harness)
         assert BUILTIN_PERSONAS["serious"] not in system
     finally:
         await h.service.stop()
+
+
+@pytest.mark.parametrize("text", [
+    "How did my message reach you?", "Can anyone hear me?", "Signal report", "how strong was my signal",
+    "did you get that?", "what was the SNR on that", "How many hops did my packet take", "do you copy",
+    "What are my hops?", "Did I reach you directly?", "was that direct or via a repeater",
+])
+def test_reception_questions_are_recognised(text):
+    assert asks_about_reception(text)
+
+
+@pytest.mark.parametrize("text", [
+    "Test", "Hello?", "Good evening my bot!", "Is this thing on?", "How far is it from Madison to Milwaukee?",
+    "I'm happy to change it to make it more useful lol", "Bot is coming down for a lobotomy", "Nice weather today",
+    "do you not have a home repeater?", "It didn't hear you", "what does a repeater cost",
+])
+def test_ordinary_lines_do_not_get_the_reception_block(text):
+    assert not asks_about_reception(text)

@@ -25,6 +25,7 @@ dependencies = [
   "httpx>=0.27",
   "textual>=1.0",
   "confusables>=1.2",
+  "psutil>=6,<8",
 ]
 
 [project.urls]
