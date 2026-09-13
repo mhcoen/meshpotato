@@ -43,7 +43,8 @@ from bot.jsonlog import EventLog
 from bot.knowledge import Reference, asks_about_radio, checked_references, select_references
 from bot.memory import PersonMemory
 from bot.magic8 import ANSWERS as MAGIC8_ANSWERS
-from bot.sports import is_score_query, score_answer, MAX_AGE_S, local_now as sports_now, UNAVAILABLE as SCORE_UNAVAILABLE
+from bot.sports import sports_answer, sports_failure, MAX_AGE_S, local_now as sports_now
+from bot.sports_queries import is_sports_query, with_team_context
 from bot.parse import extract_prompt, parse_channel_text
 from bot.personas import BUILTIN_PERSONAS, FORGET_COMMAND, HELP_COMMAND, LORA_FACTS, MAGIC8_COMMAND, RESET_COMMAND, ROLL_COMMAND, WEB_COMMAND, parse_command, radio_facts
 from bot.web import WebLookup, WebLookupError, needs_web, search_query, usable_sources, web_instructions, supported_answer, web_object, UNVERIFIED, DISABLED, USAGE
@@ -230,6 +231,7 @@ class BotService:
         self._backend_failures = 0
         self._backend_retry_at = 0.0
         self._direct_replies: OrderedDict[str, int] = OrderedDict()
+        self._sports_context: OrderedDict[str, tuple[dict, float]] = OrderedDict()
         self.web = WebLookup()
         try:
             parameters = inspect.signature(backend.complete).parameters
@@ -598,14 +600,14 @@ class BotService:
         available = reply_body_room(parsed.sender, cfg.reply_max_chars, self._reply_max_bytes)
         if available < max(len(cfg.apology), len(cfg.too_long_reply)):
             return self._record(parsed, path_len, Decision.DROP_EMPTY, reason="sender-name leaves no room for fixed replies")
-        if self._clock() < self._backend_retry_at and not (cfg.web_enabled and is_score_query(prompt)):
+        if self._clock() < self._backend_retry_at and not (cfg.web_enabled and is_sports_query(prompt)):
             return self._record(parsed, path_len, Decision.DROP_MODEL_UNAVAILABLE, reason="model cooldown")
         # 6. Keep the ingestion transcript snapshot, but read memory again after
         # waiting so earlier answers and /forget are reflected in this request.
         limit = await self._wait_for_admission(parsed.sender, received_at)
         if not limit.allowed:
             return self._queue_drop(parsed, path_len, limit.reason)
-        if self._clock() < self._backend_retry_at and not (cfg.web_enabled and is_score_query(prompt)):
+        if self._clock() < self._backend_retry_at and not (cfg.web_enabled and is_sports_query(prompt)):
             return self._record(parsed, path_len, Decision.DROP_MODEL_UNAVAILABLE, reason="model cooldown")
         state = self._requests[asyncio.current_task()]
         if state.direct_reply and self._direct_replies.get(parsed.sender, 0) >= 2:
@@ -635,12 +637,15 @@ class BotService:
                 state.web_failure = USAGE.replace("/web", cfg.command_prefix + WEB_COMMAND)
             else:
                 now = datetime.now().astimezone()
-                query = search_query(prompt, cfg.web_location, now)
+                prior = self._sports_context.get(parsed.sender)
+                context = prior[0] if prior and self._clock() - prior[1] <= 600 else None
+                lookup_prompt = with_team_context(prompt, context) if is_sports_query(prompt) else prompt
+                query = search_query(lookup_prompt, cfg.web_location, now)
                 state.web_started = True
                 state.web_prompt = query
-                sports = is_score_query(prompt)
+                sports = is_sports_query(prompt)
                 if sports:
-                    state.web_failure = SCORE_UNAVAILABLE
+                    state.web_failure = sports_failure(prompt)
                 # Only this question and configured location leave the machine;
                 # no sender identity, conversation history, or radio credentials.
                 self._check(query, "web-query")
@@ -648,13 +653,20 @@ class BotService:
                     pages = await asyncio.wait_for(self.web.search(query),
                                                    min(12.0, max(0, state.generation_deadline - loop.time())))
                     if sports:
-                        state.web_failure, evidence = score_answer(pages, query, sports_now(), available)
+                        state.web_failure, evidence = sports_answer(pages, query, sports_now(), available)
                         self._check(state.web_failure, "sports-reply")
                         if evidence:
                             fetched = datetime.fromisoformat(evidence["fetched_at"])
                             age = (datetime.now().astimezone() - fetched).total_seconds()
                             state.sports_expires_at = self._clock() + max(0, MAX_AGE_S - age)
-                        self.log.emit("sports_lookup", outcome="score" if evidence else "unverified",
+                            if evidence.get("team_context"):
+                                self._sports_context[parsed.sender] = (evidence["team_context"], self._clock())
+                                self._sports_context.move_to_end(parsed.sender)
+                                while len(self._sports_context) > cfg.person_memory_people:
+                                    self._sports_context.popitem(last=False)
+                            else:
+                                self._sports_context.pop(parsed.sender, None)
+                        self.log.emit("sports_lookup", outcome="answer" if evidence else "unverified",
                                       errors=[p["sports_error"] for p in pages if isinstance(p.get("sports_error"), str)],
                                       **(evidence or {}))
                     else:
@@ -1205,6 +1217,7 @@ class BotService:
             text = random.choice(MAGIC8_ANSWERS)
             decision = Decision.ANSWERED_MAGIC8
         elif command == FORGET_COMMAND:
+            self._sports_context.pop(parsed.sender, None)
             for state in self._requests.values():
                 if state.sender == parsed.sender:
                     state.remember = False

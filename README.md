@@ -135,13 +135,42 @@ requests such as "What should I cook tonight?" and "Who is W1MHC?" stay with
 the model and configured local facts. Include the exact product and store location; sites that require a login,
 JavaScript, or a bot check may prevent the bot from finding an answer.
 
-For sports scores, ask "What's the score of the Packers game?" or use
+For sports, ask "What's the score of the Packers game?" or use
 `/web Packers score`. NFL, NBA, WNBA, MLB, and NHL scores come directly from
 ESPN's structured scoreboards. The reply includes both teams and scores, game
 status (quarter/period/inning, halftime, final, scheduled, or postponed), game
 date, and the local time the bot fetched the ESPN snapshot. The model does not
 invent, infer, or rewrite scores. For example, the format is
 `Packers 19, Vikings 10; Q3 10:55, 09/13 (ESPN 22:16 CDT).`
+
+Sports questions also recognize standings and schedules:
+
+| Ask | Answer uses |
+| --- | --- |
+| "What place are the Brewers in?" / "Where do the Cubs stand?" | Current division position and win-loss record |
+| "How are the Packers doing?" / "Brewers record?" | Season standing and record; add "in the game" for the score |
+| "Who's leading the NL Central?" / "Who leads the Packers' division?" | The first team listed in that division's standings |
+| "How many games behind are the Cubs?" / "How far back are the Brewers?" | The provider's games-behind figure and position |
+| "When do the Brewers play next?" / "Who are the Bucks playing next?" | Opponent, home/away order, date and local start time |
+| "Did the Brewers win?" / "Are the Packers winning?" | The dated game's actual score and status |
+
+Standings use the current season and the named group: a conference playoff seed
+is never presented as a division position. Replies say "listed" because tied
+records can have an official ordering. Games-behind figures are included when
+the feed supplies them; hockey uses points, and missing metrics are identified
+instead of calculated from unrelated fields. Historical standings snapshots are
+not supported. Next-game answers require a future scheduled game with a confirmed
+start time. If the provider's compact next-game field still names a finished
+game, the bot checks small daily scoreboards for the next two weeks, staying
+within the same retrieval budget. It refuses an unverified time or opponent.
+
+After a successful team lookup, the same sender can ask "When do they play next?"
+or "Who's leading the division?" for ten minutes. Explicit team or division names
+take precedence. Without a clear team, the bot asks for clarification; it does
+not borrow another sender's topic. This short sports context is held only in
+memory, is bounded by `person_memory_people`, and is cleared by `/forget`.
+Ordinary questions such as "How is Michael doing?" or "What is a standing wave?"
+remain ordinary conversation.
 
 Score requests default to games dated today in the bot computer's timezone.
 You can specify `yesterday`, `tomorrow`, or an ISO date such as
@@ -180,7 +209,7 @@ and operator notes are not added to the search query. Anything a person puts
 in their question can leave the mesh. The bot's computer handles the internet
 connection and search; the person asking needs no internet access, account, app,
 or extra setup. The `/help web` topic makes this clear. Set `web_enabled = false`
-to disable web lookup, including scores. Sports lookups request dated ESPN
+to disable web lookup, including scores. Sports lookups request ESPN team catalogs, standings, and dated
 scoreboards and match team names locally; they do not send the question to a
 search engine. ESPN's public endpoint is an external dependency and may change.
 Its JSON requests use a compatibility user-agent identifying Mesh Potato,
