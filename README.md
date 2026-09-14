@@ -530,7 +530,7 @@ After a successful start, the bot announces its name, package version, configure
 LLM, and repository link in one message, for example:
 
 ```text
-Mesh Potato v1.7.1, LLM: qwen3:30b-a3b-instruct-2507-q4_K_M, https://github.com/mhcoen/meshpotato Try /help.
+Mesh Potato v1.7.3, LLM: qwen3:30b-a3b-instruct-2507-q4_K_M, https://github.com/mhcoen/meshpotato Try /help.
 ```
 
 The package version is also available locally with `meshpotato --version`.
@@ -800,11 +800,15 @@ and is not configurable. Seven presets are built in and written out in
 `config.example.toml` under `[personas]`: `nice` (the default), `funny`, `snarky`,
 `marvin` (a brilliant robot sunk in cosmic gloom), `pirate`, `haiku`, and
 `serious` (calm, factual answers without jokes or roleplay).
-Edit them, add your own, or delete the table to use the built-in set.
-When upgrading, set `default_persona = "nice"`. If your config has an existing
-`[personas]` table, copy the `nice` and `serious` entries from
-`config.example.toml` into that table and restart; explicit tables
-replace the built-ins and are not silently extended.
+Startup, `/reset`, and personality expiry always return to the built-in nice
+voice. Older `default_persona` settings and environment overrides are normalized
+on load, and an older `[personas]` table automatically receives the built-in
+`nice` entry. You do not need to edit your config to get nice behavior after an
+upgrade; restart the bot after pulling the new code. The `nice` entry is reserved
+and cannot be replaced by custom persona text. Other presets can be edited or
+added and are activated only by a channel command. Personal jabs are refused in
+every voice, including comparisons that praise the bot while mocking the asker
+or their equipment.
 
 Anyone on the channel can switch with a command, the command prefix (`/` by
 default) followed by a preset name. The full [command list](#channel-commands)

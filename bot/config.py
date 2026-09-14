@@ -13,7 +13,7 @@ import os
 import math
 import tomllib
 from collections.abc import Mapping
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field, fields, replace
 from pathlib import Path
 from typing import Any
 
@@ -214,7 +214,7 @@ class Config:
                 errors.append(f"persona name {name!r} collides with a command")
             if not isinstance(text, str) or not text.strip():
                 errors.append(f"persona {name!r} must have non-empty text")
-        if self.default_persona not in self.personas:
+        if self.default_persona not in BUILTIN_PERSONAS and self.default_persona not in self.personas:
             errors.append(f"default_persona {self.default_persona!r} is not in personas")
         if self.persona_timeout_min <= 0:
             errors.append("persona_timeout_min must be positive")
@@ -261,6 +261,11 @@ class Config:
             errors.append("need 0 <= duty_low < duty_high <= 1")
         if errors:
             raise ConfigError("; ".join(errors))
+        # Nice is a product default, including upgrades from explicit old tables
+        # and environment overrides. Other presets are selected only by command.
+        if self.default_persona != "nice" or self.personas.get("nice") != BUILTIN_PERSONAS["nice"]:
+            return replace(self, default_persona="nice",
+                           personas={**self.personas, "nice": BUILTIN_PERSONAS["nice"]}).validate()
         return self
 
     @property
