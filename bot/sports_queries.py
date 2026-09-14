@@ -35,7 +35,7 @@ def sports_kind(query, *, has_context=False):
         return "behind"
     if hint and re.search(r"\b(?:first|last|\d+(?:st|nd|rd|th)) place\b", q):
         return "standings"
-    if re.search(r"\b(?:lead(?:ing|s)?|first|atop|top)\b", q) and re.search(r"\b(?:division|conference|nl|al|nfc|afc)\b", q):
+    if re.search(r"\b(?:lead(?:ing|s)?|first|atop|top)\b", q) and re.search(r"\b(?:division|conference|nl|al|nfc|afc|(?:national|american) league)\b", q):
         return "leader"
     if hint and re.search(r"\brecord\b", q):
         return "standings"
