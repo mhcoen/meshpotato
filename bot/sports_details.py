@@ -140,7 +140,8 @@ def _standings_answer(page, query, now, available):
     # Feed array order is not a rank (NBA and conference tables are unsorted).
     # Sort only within the selected group. Equal statistical keys share a rank;
     # this does not pretend to implement each league's playoff tiebreakers.
-    division = "division" in group["name"].lower() or not re.search(r"conference|\bleague\b", query, re.I)
+    division = (not re.search(r"\bconference\b", group["name"], re.I)
+                and group["name"].lower() not in {"national league", "american league"})
     def rank_key(s):
         gb = "divisionGamesBehind" if division and "divisionGamesBehind" in s else "gamesBehind"
         return (-s[primary], s.get(gb, Decimal(0))) if league != "nhl" else (-s[primary],)
@@ -265,7 +266,7 @@ def collect_details(query, fetch, now=None):
     years = re.findall(r"\b20\d{2}\b", re.sub(r"\(as of .*?\)$", "", query))
     if any(int(y) != season for y in years):
         return []
-    level = 2 if re.search(r"\bconference\b|\b(?:national|american) league\b", query, re.I) and not re.search(r"\b(?:east|west|central|north|south)\b", query, re.I) else 3
+    level = 2 if re.search(r"\bconference\b|\b(?:national|american) league\b|\b(?:nl|al)\b", query, re.I) and not re.search(r"\b(?:east|west|central|north|south)\b", query, re.I) else 3
     try:
         def table(year):
             return fetch(f"https://site.api.espn.com/apis/v2/sports/{LEAGUES[league]}/{league}/standings?season={year}&level={level}")
