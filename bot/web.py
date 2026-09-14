@@ -12,7 +12,7 @@ from bot.reply import shape_reply
 from bot.text_safety import has_block_marker
 from bot.quality import third_party_jab
 from bot.web_evidence import supports, qualifiers
-from bot.sports_queries import is_sports_query
+from bot.sports_queries import is_sports_query, asks_sports_capabilities
 from tld import get_fld
 
 UNVERIFIED = "I couldn't verify that from current web sources."
@@ -23,6 +23,8 @@ USAGE = "Use /web followed by a question."
 def needs_web(prompt: str) -> bool:
     """Require a volatile fact object, not merely a temporal word or identity question."""
     text = prompt.lower()
+    if asks_sports_capabilities(prompt):
+        return False
     if re.search(r"\b(?:how are you|how's it going|who are you|what can you do|rssi|snr|hop count|my (?:message|signal|reception))\b", text):
         return False
     if re.fullmatch(r"what is (?:a |the )?(?:weather|inflation|stock market|electric current)\??", text.strip()):
