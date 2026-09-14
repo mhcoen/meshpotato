@@ -279,3 +279,40 @@ def test_league_gap_uses_group_scope_even_for_abbreviated_queries(scope):
             if stat['name']=='divisionGamesBehind': stat['value']=0
     answer,evidence=sports_answer([p],f"Who's leading the {scope}?",NOW,140)
     assert evidence and '; lead by 10 games' in answer
+
+
+@pytest.mark.parametrize('question', [
+    'What was the score of the packer game?',
+    'what was the score on the Packer game tonight?',
+    "What was the score of the Packer's game tonight?",
+    'What was the score of the Packers game tonight?',
+    '/web What was the score of the packer game tonight?',
+])
+async def test_packer_alias_from_catalog_through_transmission(question,harness,service_clock):
+    from bot.sports import collect_scores
+    from tests.test_sports import event
+    game=event(state='post',status='STATUS_FINAL')
+    def fetch(url):
+        if '/teams?' in url: return fixture_fetch(url)
+        assert '/football/nfl/scoreboard?' in url
+        return {'leagues':[{'slug':'nfl'}],'events':[game]}
+    async def lookup(query):
+        return collect_scores(query,fetch,NOW)
+    h=harness(web_enabled=True,backend=FakeBackend(error=RuntimeError('model must not run')))
+    h.service.web.search=AsyncMock(side_effect=lookup)
+    assert await h.say('Michael: '+question) is Decision.ANSWERED
+    assert h.sent==[(1,'@[Michael] Packers 19, Vikings 10; final, 09/13 (ESPN 22:16 CDT).')]
+    assert not h.backend.calls
+    assert h.service._sports_context['Michael'][0]=={'team':'Green Bay Packers','league':'nfl'}
+
+
+@pytest.mark.parametrize('query', ['Backpacker game score?', 'Packerman score?', 'packing game score?'])
+def test_team_alias_does_not_match_substrings_or_invent_stems(query):
+    from tests.test_sports import event
+    team=_team(event()['competitions'][0]['competitors'][1])
+    assert not matches(team,query)
+
+
+@pytest.mark.parametrize('query,kind', [('How are the Packer doing?', 'overview'), ('When is the next Packer game?', 'next')])
+def test_packer_alias_is_shared_by_routing_and_matching(query,kind):
+    assert sports_kind(query)==kind

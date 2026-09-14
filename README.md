@@ -143,6 +143,9 @@ date, and the local time the bot fetched the ESPN snapshot. The model does not
 invent, infer, or rewrite scores. For example, the format is
 `Packers 19, Vikings 10; Q3 10:55, 09/13 (ESPN 22:16 CDT).`
 
+"Packer game" also means the Green Bay Packers; for example, "What was the
+score on the Packer game tonight?" uses today's game in the bot's local timezone.
+
 Sports questions also recognize standings and schedules:
 
 | Ask | Answer uses |
