@@ -185,6 +185,12 @@ remain ordinary conversation. Common-word nicknames such as Heat or Sun need
 capitalization, a full team name, or a sports term such as NBA. Abbreviations such
 as NO or MIN must be uppercase so ordinary words do not identify another team.
 
+The bot knows that it provides sports and web lookups. Sent lookup answers are
+kept in the same channel history and per-person memory as ordinary replies, so
+people can refer back to them. A question waiting in the queue also sees bot
+answers completed during its wait. Earlier results describe what the bot reported
+then; they are not proof of a current score, price, or other changing fact.
+
 Score requests default to games dated today in the bot computer's timezone.
 You can specify `yesterday`, `tomorrow`, or an ISO date such as
 `/web Packers score 2026-09-13`. Include the league or opponent if the team name
@@ -610,8 +616,9 @@ part is whatever the sending node put there; nothing verifies it.
    queue rejects new arrivals, preserving those already waiting. The head waits
    for both global and per-sender tokens; congestion never speeds up draining.
    Once admitted, memory is refreshed and context checked again; the transcript
-   still uses the ingestion snapshot, with overlap removed against the refreshed
-   memory. Tokens are reserved, committed on a send
+   adds bot answers completed during the wait to its ingestion snapshot, while
+   excluding later incoming questions. Overlap with refreshed personal memory is
+   removed. Tokens are reserved, committed on a send
    attempt, and refunded on injection blocks or other unsent outcomes. Refill
    timing is anchored to transmission, so slow generation cannot bunch replies.
 10. **Model and web lookup.** When needed, search follows queue admission, so
