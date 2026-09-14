@@ -26,9 +26,18 @@ def has_team(query):
     return False
 
 
+def asks_sports_capabilities(query):
+    """A general ability question has no named team or requested game date."""
+    return (not has_team(query)
+            and bool(re.search(r"^(?:can|could|do|are) you\b.*\b(?:sports|scores|standings|schedules)\b", query.strip(), re.I))
+            and not re.search(r"\b(?:today|tonight|yesterday|tomorrow)\b|\b\d{4}-\d{2}-\d{2}\b", query, re.I))
+
+
 def sports_kind(query, *, has_context=False):
     from bot.sports import is_score_query
     if NONSPORT.search(query):
+        return None
+    if asks_sports_capabilities(query):
         return None
     q = query.lower().replace("’", "'")
     team = has_team(query)
