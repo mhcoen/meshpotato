@@ -1,6 +1,6 @@
 """Sports intents and bounded follow-up wording; no model or network routing."""
 import re
-from bot.sports_names import TEAM_NAMES
+from bot.sports_names import TEAM_NAMES, TEAM_ALIASES
 
 # These nicknames also name ordinary things. Lowercase use needs sports context.
 COMMON_NAMES = frozenset('sun sky heat wild fire bulls rays kings jazz wings reds twins magic thunder lightning stars sparks dream liberty fever storm mercury aces nets pelicans hornets hawks rockets warriors giants rangers guardians athletics royals angels tigers pirates cardinals orioles blue jays saints jets bears lions panthers falcons eagles ravens commanders titans chargers colts browns bills dolphins ducks senators predators avalanche islanders devils kraken capitals'.split())
@@ -14,6 +14,8 @@ def normalized(query):
 
 def has_team(query):
     text = " " + normalized(query) + " "
+    if any(" " + alias + " " in text for alias in TEAM_ALIASES):
+        return True
     for name in TEAM_NAMES:
         if " " + normalized(name) + " " not in text:
             continue

@@ -10,6 +10,7 @@ import re
 import os
 from zoneinfo import ZoneInfo
 from datetime import datetime, timedelta
+from bot.sports_names import TEAM_ALIASES
 
 LEAGUES = {"nfl": "football", "nba": "basketball", "wnba": "basketball", "mlb": "baseball", "nhl": "hockey"}
 CLARIFY = "Which team and league do you mean? For multiple games, include the opponent or date."
@@ -100,6 +101,9 @@ def match_strength(team, query):
     strengths = {"display": 3, "name": 2, "short": 2, "location": 1}
     found = [strengths[key] for key, value in team.items()
              if key in strengths and " " + words(value) + " " in normalized]
+    if any(canonical == words(team["display"]) and " " + alias + " " in normalized
+           for alias, canonical in TEAM_ALIASES.items()):
+        found.append(2)
     if re.search(r"\b" + re.escape(team["abbreviation"]) + r"\b", query):
         found.append(2)
     return max(found, default=0)
