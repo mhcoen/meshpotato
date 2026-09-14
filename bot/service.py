@@ -49,7 +49,7 @@ from bot.parse import extract_prompt, parse_channel_text
 from bot.personas import BUILTIN_PERSONAS, FORGET_COMMAND, HELP_COMMAND, LORA_FACTS, MAGIC8_COMMAND, RESET_COMMAND, ROLL_COMMAND, WEB_COMMAND, parse_command, radio_facts
 from bot.web import WebLookup, WebLookupError, needs_web, search_query, usable_sources, web_instructions, supported_answer, web_object, UNVERIFIED, DISABLED, USAGE
 from bot.prompt import build_messages, build_user_message
-from bot.quality import Problem, is_pass, looks_like_question, nudge as quality_nudge, reply_problem, third_party_jab
+from bot.quality import Problem, is_pass, looks_like_question, nudge as quality_nudge, reply_problem, third_party_jab, personal_jab
 from bot.text_safety import forged_frame, safe_sender
 from bot.ratelimit import RateLimiter, Reservation
 from bot.reception import RECEPTION_VOICE, asks_about_reception, reception_context, is_plain_reception_report
@@ -1419,7 +1419,7 @@ class BotService:
             invalid_mention = (mention_sender != state.sender or not reply.startswith(prefix)
                                or reply_body_room(mention_sender, self.cfg.reply_max_chars, self._reply_max_bytes) <= 0)
             body = reply[len(prefix):]
-        if (invalid_mention or "@[" in body or third_party_jab(body) or any(not " " <= c <= "~" for c in body)
+        if (invalid_mention or "@[" in body or personal_jab(body) or third_party_jab(body) or any(not " " <= c <= "~" for c in body)
                 or len(reply) > self.cfg.reply_max_chars
                 or len(f"{self.cfg.bot_name}: {reply}".encode("utf-8")) > WIRE_TEXT_MAX):
             self.log.emit("send_error", error="unsafe content, invalid mention, non-ASCII body, or outgoing line exceeds the wire budget")

@@ -163,10 +163,18 @@ _RHETORICAL_RE = re.compile(
 )
 
 
+_SELF_SUPERIORITY_RE = re.compile(
+    r"\b(?:i(?:'m| am)|we(?:'re| are))\s+(?:(?:still|actually|doing|fully|at least)\s+){0,2}"
+    r"(?:functioning|working|operating|fine|well|okay|ok|stable|reliable|useful|competent|smart|awake|alive)\b"
+    r"[^.!?]{0,60}\b(?:unlike|better than|more reliably than)\s+(?:you|your|yours)\b",
+    re.I,
+)
+
+
 def personal_jab(body: str) -> str | None:
     """The belittling phrase in ``body``, or None. Warmth, disagreement and self-mockery carry none of these."""
     for pattern in (_SARCASTIC_TAG_RE, _SARCASTIC_VOCATIVE_RE, _FOR_SOMEONE_RE, _YOU_ARE_RE, _YOUR_PEJORATIVE_RE,
-                    _YOUR_FACULTY_RE, _YOUR_TRAIT_RE, _RHETORICAL_RE):
+                    _YOUR_FACULTY_RE, _YOUR_TRAIT_RE, _RHETORICAL_RE, _SELF_SUPERIORITY_RE):
         m = pattern.search(body)
         if m:
             return m.group(0)

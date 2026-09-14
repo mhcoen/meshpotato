@@ -133,6 +133,8 @@ async def test_fortune_uses_builtin_funny_with_explicit_persona_table(harness, c
         personas["funny"] = "Voice: solemn and formal."
     h = harness(personas=personas, default_persona="serious",
                 backend=FakeBackend(replies=["word " * 60, "A sock awaits."]))
+    assert h.service.active_persona == "nice"
+    assert (await h.say("Michael: /serious")).value == "persona-switched"
     wall = Clock(at(2026, 9, 4, 6, 3))
     s, _ = make_scheduler(h, wall)
     assert await s.fire(wall()) is True
