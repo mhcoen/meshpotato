@@ -1,4 +1,6 @@
 """Routing hints from ESPN team catalogs, September 2026; facts still require live feeds."""
+TEAM_ALIASES = {"packer": "green bay packers"}
+
 TEAM_NAMES = frozenset({
     '49ers',
     '76ers',
