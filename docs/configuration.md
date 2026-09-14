@@ -18,8 +18,8 @@ any key may appear in any section.
 | `too_long_reply` | `That answer will not fit in one message, ask me something narrower.` | Sent when it still does not fit after the retries |
 | `apology` | `Sorry, I couldn't answer that one.` | Posted on model timeout or error |
 | `facts` | `""` | Local facts added to the system prompt after the built-in LoRa facts and the radio's own settings |
-| `[personas]` | seven built-ins | Table of name = text presets, including nice and serious; explicit tables replace the built-ins; see [Personalities](../README.md#personalities) |
-| `default_persona` | `nice` | Warm, helpful preset active at start and after a reset; other voices are selected by command |
+| `[personas]` | seven built-ins | Table of name = text presets, including nice and serious; explicit tables replace other built-ins but always receive the reserved built-in nice voice; see [Personalities](../README.md#personalities) |
+| `default_persona` | `nice` | Compatibility setting: normalized to `nice` on load, including old configs and environment overrides; startup/reset/expiry always use the built-in nice voice, other voices require a command |
 | `persona_timeout_min` | `120` | A switched personality reverts after this long |
 | `persona_reset_message` | `Back to the default personality.` | Posted when it reverts |
 | `command_prefix` | `/` | Commands are this prefix plus a preset name, `help`, or `reset` |
