@@ -5,6 +5,7 @@ import asyncio
 import pytest
 
 from bot.config import ConfigError, config_from_mapping
+from bot.activity import ACTIVITY_BEGIN
 from bot.guard import Verdict
 from bot.prompt import HISTORY_BEGIN, HISTORY_END, MEMORY_BEGIN, MEMORY_END
 from bot.service import Decision
@@ -234,7 +235,9 @@ async def test_ingestion_snapshot_and_memory_refresh_after_waiting(queued, clock
     memory = user.split(MEMORY_BEGIN)[1].split(MEMORY_END)[0]
     # The earlier question now lives only in refreshed personal memory.
     assert "first question" not in transcript
-    assert user.count("first question") == 1
+    # The conversation deduplicates memory/history; activity has a separate
+    # untrusted excerpt linking that message to its processing outcome.
+    assert user.split(ACTIVITY_BEGIN)[0].count("first question") == 1
     assert "followup question" not in transcript and "later question" not in transcript
     assert "first question" in memory and "Four." in memory
     await h.service.stop()
