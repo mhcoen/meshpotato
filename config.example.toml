@@ -59,8 +59,8 @@ queue_wait_s = 600.0              # deadline from receipt through send, includin
 adaptive_enabled = true           # scale the global limit by channel airtime (see README)
 utilization_poll_s = 10.0         # how often to read the radio's airtime/packet counters
 utilization_window_s = 120.0      # duty cycle is computed over this window; the counters are whole seconds
-duty_low = 0.05                   # at/above this duty cycle the global rate is halved
-duty_high = 0.15                  # at/above this it is paused; relaxes one step per poll with hysteresis
+duty_low = 0.15                   # at/above this receive duty cycle the global rate is halved
+duty_high = 0.30                  # at/above this it is paused; relaxes one step per poll with hysteresis
 tx_duty_budget = 0.02             # THE DIAL: share of channel time the bot may use for its own transmissions
 
 [history]

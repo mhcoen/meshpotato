@@ -11,6 +11,7 @@ from bot.jsonlog import EventLog
 from bot.ratelimit import RateLimiter
 from bot.utilization import RELAX_POLLS, TIGHTEN_POLLS, UtilizationMonitor, next_level, target_level
 from tests.conftest import FakeClock, FakeMeshCore
+from tests.conftest import make_config
 
 LOW, HIGH = 0.05, 0.15
 
@@ -92,6 +93,30 @@ async def polls(mon, clock, n, step=10):
         clock.advance(step)
         u = await mon.sample()
     return u
+
+
+@pytest.mark.parametrize("rx_seconds,tx_seconds,step,expected", [
+    (1, 0, 15, "full"),     # 6.7% receive airtime, like the reported quiet-night log
+    (3, 0, 20, "half"),     # the new 15% receive threshold
+    (6, 0, 20, "paused"),   # the new 30% receive threshold
+    (0, 1, 20, "paused"),   # own transmissions can still exceed the separate budget
+])
+async def test_shipped_thresholds_with_radio_counters(rx_seconds, tx_seconds, step, expected):
+    cfg = make_config()
+    clock = FakeClock()
+    mc, limiter, mon, records = make_monitor(clock)
+    mon.window_s = cfg.utilization_window_s
+    mon.duty_low, mon.duty_high = cfg.duty_low, cfg.duty_high
+    mon.tx_budget = cfg.tx_duty_budget
+    await mon.sample()
+    for _ in range(12):
+        clock.advance(step)
+        mc.rx_air += rx_seconds
+        mc.tx_air += tx_seconds
+        reading = await mon.sample()
+    assert reading.level == expected
+    if expected == "full":
+        assert not [r for r in records if r["event"] == "rate_level"]
 
 
 async def test_first_sample_has_nothing_to_compare():
