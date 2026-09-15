@@ -26,6 +26,23 @@ REACTIONS = frozenset({
 })
 
 
+def social_acknowledgment(prompt: str, bot_name: str) -> str:
+    """A safe fallback for a greeting or farewell explicitly addressed to this bot."""
+    names = "|".join(re.escape(n) for n in {bot_name, "mesh potato", "meshpotato", "potato", "bot"} if n)
+    match = re.match(
+        rf"^(good\s*night|gnite|g'night|night|gn|good\s*morning|hello|hi|hey|bye|goodbye)"
+        rf"[\s,]+(?:{names})(?=$|[\s,.!?])", prompt.strip(), re.I,
+    )
+    if not match:
+        return ""
+    greeting = re.sub(r"\s", "", match[1].lower())
+    if greeting in {"goodnight", "gnite", "g'night", "night", "gn"}:
+        return "Goodnight, sleep well."
+    if greeting in {"bye", "goodbye"}:
+        return "Take care, see you soon."
+    return "Hello, good to hear from you."
+
+
 def is_reaction(prompt: str) -> bool:
     """True for emoji or punctuation alone, or up to three reaction words. A question never is."""
     if "?" in prompt:
