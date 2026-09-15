@@ -114,8 +114,8 @@ class Config:
     adaptive_enabled: bool = True
     utilization_poll_s: float = 10.0
     utilization_window_s: float = 120.0
-    duty_low: float = 0.05
-    duty_high: float = 0.15
+    duty_low: float = 0.15
+    duty_high: float = 0.30
     tx_duty_budget: float = 0.02
 
     # [injection]

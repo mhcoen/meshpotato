@@ -787,9 +787,15 @@ received duty cycle, other people's airtime, over the same window:
 
 | Received duty cycle | Level | Global rate |
 |---|---|---|
-| below `duty_low` | full | as configured |
-| `duty_low` to `duty_high` | half | configured x 0.5 |
-| at or above `duty_high` | paused | no replies |
+| below `duty_low` (15% by default) | full | as configured |
+| `duty_low` to `duty_high` (15% to below 30%) | half | configured x 0.5 |
+| at or above `duty_high` (30% by default) | paused | no replies |
+
+On an existing installation, set `duty_low = 0.15` and `duty_high = 0.30`
+in the `[adaptive]` section of `config.toml` to use these receive thresholds.
+Pulling new code does not replace explicit settings in your config. With the
+120-second window, 15% means 18 seconds of received airtime; repeated packets
+and traffic outside the bot's channel also contribute to the radio's counter.
 
 The two policies share one ladder; either can tighten it and both must
 agree before it relaxes. The `utilization` and `rate_level` log records say

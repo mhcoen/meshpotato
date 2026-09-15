@@ -50,8 +50,8 @@ any key may appear in any section.
 | `adaptive_enabled` | `true` | Scale the global rate by channel load |
 | `utilization_poll_s` | `10.0` | Seconds between radio statistics polls |
 | `utilization_window_s` | `120.0` | Window for the duty cycle |
-| `duty_low` | `0.05` | Receive duty cycle at which the rate is halved |
-| `duty_high` | `0.15` | Receive duty cycle at which replies pause |
+| `duty_low` | `0.15` | Receive duty cycle at which the rate is halved |
+| `duty_high` | `0.30` | Receive duty cycle at which replies pause |
 | `tx_duty_budget` | `0.02` | Own-transmit airtime target, not a hard ceiling or network-wide budget |
 | `state_db` | `meshpotato.sqlite3` | SQLite conversation file, restricted to its owner (0600), relative to the working directory; `""` disables persistence |
 | `state_save_interval_s` | `5.0` | Seconds between snapshots; also saves on clean shutdown and immediately for `/forget` |
