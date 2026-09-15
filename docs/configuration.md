@@ -56,7 +56,7 @@ any key may appear in any section.
 | `state_db` | `meshpotato.sqlite3` | SQLite conversation file, restricted to its owner (0600), relative to the working directory; `""` disables persistence |
 | `state_save_interval_s` | `5.0` | Seconds between snapshots; also saves on clean shutdown and immediately for `/forget` |
 | `history_size` | `20` | Maximum recent channel lines, including saved history |
-| `history_max_age_s` | `3600.0` | Expire channel lines after one hour, including across restarts |
+| `history_max_age_s` | `3600.0` | Expire channel lines after one hour, including across restarts; also bounds in-memory activity records by time since reception |
 | `transcript_max_chars` | `1500` | Size of the transcript given to the model |
 | `person_memory_rounds` | `20` | Answered exchanges remembered per sender name |
 | `person_memory_days` | `14` | Rounds older than this are dropped |
