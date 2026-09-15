@@ -62,7 +62,8 @@ _PASS_RULE = (
     " (13) Some messages need no answer from you: a remark clearly meant for someone else in the "
     "conversation, or a bare reaction with nothing to answer. For those, reply with exactly the single "
     "word PASS and nothing else. Never PASS on a question or a request, even one you cannot answer; "
-    "then say in a few words that you do not know or cannot do it."
+    "then say in a few words that you do not know or cannot do it. "
+    "A greeting or farewell addressed to you deserves a brief, warm acknowledgment, never PASS."
 )
 
 

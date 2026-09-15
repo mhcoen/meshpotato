@@ -54,7 +54,7 @@ from bot.text_safety import forged_frame, safe_sender
 from bot.ratelimit import RateLimiter, Reservation
 from bot.reception import RECEPTION_VOICE, asks_about_reception, reception_context, is_plain_reception_report
 from bot.reply import compose_reply, shape_reply, reply_prefix, reply_body_room, plain_ascii
-from bot.triage import is_reaction, mentions_someone
+from bot.triage import is_reaction, mentions_someone, social_acknowledgment
 from bot.lifecycle import close_step, disconnect
 from bot.storage import StateError, StateStore
 
@@ -233,6 +233,7 @@ class BotService:
         self._backend_retry_at = 0.0
         self._direct_replies: OrderedDict[str, int] = OrderedDict()
         self._sports_context: OrderedDict[str, tuple[dict, float]] = OrderedDict()
+        self._outcomes: OrderedDict[str, deque[tuple[float, str]]] = OrderedDict()
         self.web = WebLookup()
         try:
             parameters = inspect.signature(backend.complete).parameters
@@ -434,6 +435,31 @@ class BotService:
     # ------------------------------------------------------------------ the handler
 
     def _record(self, parsed, path_len, decision: Decision, **extra: Any) -> Decision:
+        state = self._requests.get(asyncio.current_task())
+        if (state is not None and state.remember and safe_sender(parsed.sender)
+                and parsed.sender != self.cfg.bot_name
+                and decision != Decision.IGNORED_OTHER_CHANNEL):
+            # Only application-owned labels enter trusted context, never message
+            # bodies, rejected drafts, exception text, or claimed sender identities.
+            if decision.value.startswith("answered") or decision == Decision.APOLOGY:
+                outcome = "reply sent (radio acknowledged it; recipient delivery is unknown)"
+            elif decision == Decision.DECLINED:
+                outcome = "model chose PASS; no reply was sent"
+            elif decision == Decision.DROP_SEND_FAILED:
+                outcome = "send failed or was not acknowledged; delivery is unknown"
+            elif decision == Decision.PERSONA_SWITCHED:
+                outcome = "voice changed without sending a reply"
+            elif decision == Decision.DROP_BAD_REPLY:
+                outcome = ("reply drafts rejected for repeating an earlier reply; no reply was sent"
+                           if extra.get("reason") == "repeat" else
+                           "reply drafts rejected by content checks; no reply was sent")
+            else:
+                outcome = f"request ended as {decision.value}"
+            rows = self._outcomes.setdefault(parsed.sender, deque(maxlen=4))
+            rows.append((self._clock(), outcome))
+            self._outcomes.move_to_end(parsed.sender)
+            while len(self._outcomes) > self.cfg.person_memory_people:
+                self._outcomes.popitem(last=False)
         self.stats.last_decision = decision.value
         self.log.emit(
             "inbound",
@@ -444,6 +470,20 @@ class BotService:
             **extra,
         )
         return decision
+
+    def _outcome_context(self, sender: str) -> str:
+        now = self._clock()
+        rows = self._outcomes.get(sender, ())
+        recent = [f"{max(0, int(now - at))} seconds ago: {status}."
+                  for at, status in rows if now - at <= self.cfg.history_max_age_s]
+        return (
+            " Application-recorded outcomes for previous messages from the current sender, oldest first: "
+            + (" ".join(recent) if recent else "No recent outcome records available.")
+            + " These describe actual processing, not model guesses. If asked about silence, "
+            "acknowledge a recorded decision to skip replying or a rejected draft honestly; do not claim you sent it. "
+            "Rejected drafts in logs were not replies. Without a record, say you cannot confirm "
+            "what happened; do not invent an answer or a reason. You cannot read the operator's logs."
+        )
 
     async def handle_payload(self, payload: dict[str, Any]) -> Decision:
         parsed = parse_channel_text(payload.get("text", "") or "")
@@ -630,7 +670,7 @@ class BotService:
         persona = cfg.personas[self.active_persona] + (" " + RECEPTION_VOICE if reception else "")
         messages = build_messages(
             cfg.bot_name, budget, transcript, prompt, persona,
-            self.facts if radio_prompt else self._general_facts, memory_block,
+            self._outcome_context(parsed.sender) + " " + (self.facts if radio_prompt else self._general_facts), memory_block,
             reference, reception, may_pass=implicit,
         )
         if explicit_web or (cfg.web_enabled and (sports or needs_web(prompt)) and not reception):
@@ -703,6 +743,8 @@ class BotService:
         latency_ms = 0.0
         problem = None
         rejected = None  # the first attempt's problem; once set, only a clean replacement may be sent
+        social_fallback = (social_acknowledgment(prompt, cfg.bot_name)
+                           if not looks_like_question(prompt, cfg.bot_name) else "")
         for attempt in range(2):
             try:
                 shaped, more, more_ms, truncated = await self._generate_fitting(messages, available)
@@ -725,6 +767,9 @@ class BotService:
             retries += more
             latency_ms = round(latency_ms + more_ms, 1)
             self.stats.last_latency_ms = latency_ms  # the whole exchange, whichever branch returns next
+            fixed_social = bool(implicit and is_pass(shaped) and social_fallback)
+            if fixed_social:
+                shaped, truncated = social_fallback, False
             if not shaped.strip() and not truncated:
                 self.stats.model_errors += 1
                 self._backend_failed()
@@ -744,8 +789,8 @@ class BotService:
                 problem = None  # the first attempt takes the fallback path below
             else:
                 problem = self._reply_problem(shaped, prompt, parsed.sender, rounds, entries, radio_prompt)
-                if state.web_fixed and problem is not None and problem.kind == "repeat":
-                    # Only program-owned web notices may recur; mentions, jabs,
+                if (state.web_fixed or fixed_social) and problem is not None and problem.kind == "repeat":
+                    # Program-owned web notices and social fallbacks may recur; mentions, jabs,
                     # parroting and the final outbound gate still apply.
                     problem = reply_problem(shaped, prompt, [], [], radio_prompt=radio_prompt)
                 if (reception and problem is not None and problem.kind == "repeat"
@@ -1232,6 +1277,7 @@ class BotService:
             decision = Decision.ANSWERED_MAGIC8
         elif command == FORGET_COMMAND:
             self._sports_context.pop(parsed.sender, None)
+            self._outcomes.pop(parsed.sender, None)
             for state in self._requests.values():
                 if state.sender == parsed.sender:
                     state.remember = False
