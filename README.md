@@ -641,6 +641,18 @@ part is whatever the sending node put there; nothing verifies it.
     like a question or request (a question mark, or an opener such as what,
     how, can, tell, explain) gets one retry with the rule restated, since the
     model otherwise uses it as an exit from questions it cannot answer.
+    Greetings and farewells addressed to the bot, such as `Gnite bot`, should
+    receive a warm acknowledgment. If the model returns `PASS` for one, a short
+    friendly fallback is sent through the normal rate limits and reply checks.
+    That fixed acknowledgment may repeat.
+
+    The model also receives the last four processing outcomes for the current
+    sender, so it can distinguish a sent reply from a `PASS` or a rejected draft
+    when asked about its silence. These records contain application status only,
+    not rejected drafts, and expire with `history_max_age_s`. They are kept in
+    memory, cleared by `/forget` and restart, and are not shared across senders.
+    A radio acknowledgment does not prove delivery to the recipient; a failed
+    send leaves delivery uncertain. The model cannot read the operator's logs.
 11. **Shape.** Strip any leaked `<think>` block, collapse whitespace, reduce
     to plain ASCII with ordinary punctuation, keep the first sentence. If
     the first sentence is a question the next sentence is kept too, so a
