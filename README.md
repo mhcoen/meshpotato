@@ -646,13 +646,38 @@ part is whatever the sending node put there; nothing verifies it.
     friendly fallback is sent through the normal rate limits and reply checks.
     That fixed acknowledgment may repeat.
 
-    The model also receives the last four processing outcomes for the current
-    sender, so it can distinguish a sent reply from a `PASS` or a rejected draft
-    when asked about its silence. These records contain application status only,
-    not rejected drafts, and expire with `history_max_age_s`. They are kept in
-    memory, cleared by `/forget` and restart, and are not shared across senders.
-    A radio acknowledgment does not prove delivery to the recipient; a failed
-    send leaves delivery uncertain. The model cannot read the operator's logs.
+    You can ask why a message went unanswered or took a while. The model gets
+    the last four completed activity records for your sender name, plus the
+    current request and up to three other pending requests from that name.
+    Lines without the required trigger, bare reactions, and messages addressed
+    to other people do not occupy those four slots; incidental chatter cannot
+    evict an explanation of a reply or rejection. Message IDs and time since
+    reception connect outcomes to short excerpts of the
+    original messages. Excerpts are untrusted background, separate from the
+    application's recorded decisions; blocked text and rejected reply drafts
+    are never included in these excerpts.
+    A blocked reply draft retains the reference to its clean incoming question.
+    An optional excerpt is omitted if adding it would fail the context injection
+    check, including by duplicating text already in the conversation.
+
+    Records distinguish replies sent, `PASS`, rejected drafts, queue or rate
+    limits, and interrupted processing. They include recorded rejection/wait
+    reasons and time spent checking, queued, processing, waiting before sending,
+    waiting through a later rate pause, and issuing the radio command. Processing
+    time includes lookup, generation, retries and checks; it is not all model
+    thinking time. The current shared reply rate is also supplied. Pending
+    records describe a snapshot, not a completed outcome or promised delivery time.
+    To limit prompt size, JSON is compact and stages under one millisecond are
+    omitted. Model cooldown and an adaptive pause are recorded separately from
+    an expired delivery deadline.
+
+    These records are kept only in memory, expire `history_max_age_s` after
+    reception, and are cleared by `/forget` and restart. They are scoped to the
+    sender name, which the mesh does not authenticate. The bot cannot read the
+    operator's logs or know the model's private reason for returning `PASS`;
+    missing reasons remain unknown. A radio acknowledgment does not prove
+    receipt by the recipient. A failed or interrupted radio attempt leaves
+    delivery uncertain; stopping before any attempt means nothing was sent.
 11. **Shape.** Strip any leaked `<think>` block, collapse whitespace, reduce
     to plain ASCII with ordinary punctuation, keep the first sentence. If
     the first sentence is a question the next sentence is kept too, so a

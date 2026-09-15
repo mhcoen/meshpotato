@@ -6,6 +6,7 @@ from dataclasses import replace
 import pytest
 
 from bot.context import conversation_context
+from bot.activity import ACTIVITY_BEGIN, ACTIVITY_END
 from bot.guard import Verdict
 from bot.history import HistoryEntry
 from bot.knowledge import REFERENCE_MAX_CHARS, load_references, select_references
@@ -61,6 +62,11 @@ async def test_service_removes_overlap_with_exact_mentions_and_trigger(harness, 
     await h.say(f"{sender}: !ai height question")
     await h.say(f"{sender}: !ai and why")
     user = h.backend.calls[-1][1]["content"]
+    # Activity references preserve the original incoming text separately from
+    # the deduplicated conversation, including any trigger prefix.
+    activity = user.split(ACTIVITY_BEGIN)[1].split(ACTIVITY_END)[0]
+    assert "!ai height question" in activity
+    user = user.split(ACTIVITY_BEGIN)[0] + user.split(ACTIVITY_END)[1]
     assert user.count("height question") == 1
     assert user.count("Higher can help.") == 1
     assert MEMORY_BEGIN in user
