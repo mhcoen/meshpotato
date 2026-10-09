@@ -80,7 +80,7 @@ the monitor, or run with `--headless` as a service.
 
 ## License
 
-MIT; see [LICENSE](LICENSE). Search and extraction code adapted from Episodic
+MIT; see [LICENSE](LICENSE). Search and extraction code adapted from [Episodic](https://github.com/mhcoen/episodic)
 retains its [Apache-2.0 license](bot/EPISODIC-LICENSE).
 
 **Michael H. Coen**, W1MHC/WRYV459. mhcoen@gmail.com | mhcoen@alum.mit.edu
