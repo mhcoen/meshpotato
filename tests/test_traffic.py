@@ -73,7 +73,7 @@ async def test_ready_report_and_original_source_age():
     clock.advance(479)
     assert '+delay' in c.answer('', 130)
     clock.advance(1)
-    assert c.answer('', 130) == TRAFFIC_UNAVAILABLE
+    assert c.answer('', 130).startswith('Most recent 511 updates:')
 
 
 async def test_failed_refresh_preserves_last_good_and_never_rejuvenates_it():
@@ -89,7 +89,7 @@ async def test_failed_refresh_preserves_last_good_and_never_rejuvenates_it():
     assert c.reports == old
     assert '5m ago' in c.answer('', 130)
     clock.advance(300)
-    assert c.answer('', 130) == TRAFFIC_UNAVAILABLE
+    assert c.answer('', 130).startswith('Most recent 511 updates:')
 
 
 async def test_polling_identical_old_source_does_not_reset_age():
@@ -100,8 +100,8 @@ async def test_polling_identical_old_source_does_not_reset_age():
     assert await c.refresh()
     assert '9m ago' in c.answer('', 130)
     clock.advance(60)
-    assert not await c.refresh()
-    assert c.answer('', 130) == TRAFFIC_UNAVAILABLE
+    assert await c.refresh()
+    assert c.answer('', 130).startswith('Most recent 511 updates:')
 
 
 @pytest.mark.parametrize('field,value', [('travelTime', 'NaN'), ('delay', '-1'),
@@ -126,8 +126,8 @@ def test_no_false_clear_roads_from_incomplete_feed(mutate):
         parse_reports(payload, NOW, 1000)
 
 
-def test_missing_stale_future_or_zero_direction_is_not_reported_as_clear():
-    for stamp, current in ((NOW - 600, '17'), (NOW + 60, '17'), (NOW, '0')):
+def test_future_or_zero_direction_is_not_reported_as_clear():
+    for stamp, current in ((NOW + 60, '17'), (NOW, '0')):
         payload = table()
         payload['data'][1]['lastUpdated'] = datetime.fromtimestamp(stamp, CENTRAL).strftime('%m/%d/%y, %I:%M %p')
         payload['data'][1]['travelTime'] = current
@@ -146,7 +146,7 @@ async def test_clock_rollback_and_fetch_age_fail_closed():
     assert c.answer('', 130) == TRAFFIC_UNAVAILABLE
     c.wall_clock = lambda: NOW
     c.clock = lambda: NOW + 600
-    assert c.answer('', 130) == TRAFFIC_UNAVAILABLE
+    assert c.answer('', 130).startswith('Most recent 511 updates:')
 
 
 async def test_background_worker_starts_once_and_cancels_inflight_fetch():
@@ -193,7 +193,7 @@ async def test_missing_cache_sends_topic_notice_without_model():
     assert not h.backend.calls
 
 
-async def test_expiry_during_hold_records_actual_notice_instead_of_stale_report():
+async def test_expiry_during_hold_labels_last_known_measurements():
     clock = FakeClock(NOW)
     h = Harness(make_config(web_enabled=True), FakeBackend(), clock)
     h.service.traffic = cache(clock)
@@ -203,7 +203,7 @@ async def test_expiry_during_hold_records_actual_notice_instead_of_stale_report(
         return 600000
     h.service._hold_for_quiet_channel = hold
     await h.say('Michael: Beltline traffic?')
-    assert h.sent[-1][1] == '@[Michael] ' + TRAFFIC_UNAVAILABLE
+    assert h.sent[-1][1].startswith('@[Michael] Most recent 511 updates:')
     assert any(r.get('reply') == h.sent[-1][1] for r in h.records)
     assert not h.backend.calls
 
@@ -250,8 +250,8 @@ async def test_expiry_at_send_updates_both_radio_output_and_record(monkeypatch):
         return await original_send(reply, **kwargs)
     monkeypatch.setattr(h.service, '_send', delayed_send)
     await h.say('Michael: Beltline traffic?')
-    assert h.sent[-1][1] == '@[Michael] ' + TRAFFIC_UNAVAILABLE
-    assert any(r.get('event') == 'traffic_lookup' and r['outcome'] == 'unavailable'
+    assert h.sent[-1][1].startswith('@[Michael] Most recent 511 updates:')
+    assert any(r.get('event') == 'traffic_lookup' and r['outcome'] == 'last-known'
                and r['reply'] == h.sent[-1][1] for r in h.records)
     assert not h.backend.calls
 
@@ -294,3 +294,65 @@ async def test_historical_beltline_wording_uses_cache(prompt):
     await h.say('Michael: /web '+prompt)
     assert 'EB 22m' in h.sent[-1][1]
     assert not h.backend.calls
+
+
+async def test_historical_source_times_survive_new_fetch_and_fit_actual_sender():
+    now = datetime(2026, 10, 9, 4, 24, tzinfo=CENTRAL).timestamp()
+    payload = table(now)
+    payload['data'][0].update(lastUpdated='10/8/26, 11:06 PM', travelTime='17', delay='0')
+    payload['data'][1]['lastUpdated'] = '10/9/26, 4:13 AM'
+    clock = FakeClock(now)
+    h = Harness(make_config(web_enabled=True, bot_name='Mesh Potato', reply_max_chars=147), FakeBackend(), clock)
+    c = h.service.traffic = cache(clock)
+    async def fetch():
+        return payload
+    c.fetch = fetch
+    assert await c.refresh()
+    await h.say("Michael M7: What's the traffic like on the beltline?")
+    reply = h.sent[-1][1]
+    assert 'Most recent 511 updates' in reply
+    assert 'EB 10/08 11:06PM CDT 17m (+0)' in reply
+    assert 'WB 4:13AM CDT 17m (+0)' in reply
+    assert len(('Mesh Potato: '+reply).encode()) <= 160
+    assert not h.backend.calls
+    assert '4:24' not in reply  # fetching did not refresh the observation
+
+
+async def test_single_direction_last_update_and_missing_direction():
+    now = datetime(2026, 10, 9, 4, 24, tzinfo=CENTRAL).timestamp()
+    payload = table(now - 660)
+    payload['data'][0]['travelTime'] = '0'
+    c = cache(FakeClock(now))
+    async def fetch():
+        return payload
+    c.fetch = fetch
+    assert await c.refresh()
+    assert c.answer('WB',130) == 'Most recent update 4:13 AM CDT: Beltline I-39/90 to Univ: WB 17m (+0). 511; +delay.'
+    assert 'EB unavailable.' in c.answer('',130)
+    assert c.answer('EB',130) == TRAFFIC_UNAVAILABLE
+
+
+async def test_last_year_is_explicit_in_historical_timestamp():
+    old = datetime(2025, 10, 9, 8, tzinfo=CENTRAL).timestamp()
+    c = cache()
+    async def fetch():
+        return table(old)
+    c.fetch = fetch
+    assert await c.refresh()
+    assert '10/09/2025 8:00 AM CDT' in c.answer('EB',130)
+
+
+async def test_partial_refresh_uses_latest_each_direction_not_old_combined_snapshot():
+    c = cache()
+    await c.refresh()
+    c.clock.advance(60)
+    changed = table(NOW+60)
+    changed['data'][0].update(travelTime='27', delay='10')
+    changed['data'][1]['travelTime'] = '0'
+    async def fetch():
+        return changed
+    c.fetch = fetch
+    assert await c.refresh()
+    assert 'EB 27m (+10)' in c.answer('',130)
+    assert 'WB 17m (+0)' in c.answer('',130)
+    assert '1m ago' in c.answer('',130)

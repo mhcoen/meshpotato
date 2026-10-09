@@ -1,7 +1,8 @@
 """Background, model-free Madison Beltline travel times from the public 511 table.
 
-No radio work happens here. A report is usable only while BOTH its source timestamp
-and its successful fetch are fresh. Failed polls never extend either timestamp.
+No radio work happens here. Only fresh observations and fetches are called current;
+older measurements are shown with their original update times. Failed polls never
+extend either timestamp.
 """
 from __future__ import annotations
 
@@ -95,7 +96,7 @@ def parse_reports(payload: dict, now: float, mono: float) -> dict[str, Report]:
         except (KeyError, TypeError, ValueError, OverflowError) as exc:
             raise ValueError('invalid travel-time measurement') from exc
         # Zero is 511's "not available" sentinel. Do not make it a zero-minute trip.
-        if current == 0 or normal == 0 or not 0 <= now - observed < MAX_AGE_S:
+        if current == 0 or normal == 0 or observed > now:
             continue
         if abs(max(0, current - normal) - delay) > 1:
             raise ValueError('inconsistent travel-time measurement')
@@ -167,7 +168,7 @@ class TrafficCache:
                 payload = await asyncio.wait_for(self.fetch(), timeout=12.0)
                 reports = parse_reports(payload, self.wall_clock(), self.clock())
                 if not reports:
-                    raise ValueError('no fresh corridor measurements')
+                    raise ValueError('no valid corridor measurements')
             except Exception as exc:
                 # Never log arbitrary response bodies/URLs or discard a last good report.
                 self.log.emit('traffic_refresh', outcome='unavailable', reason=type(exc).__name__)
@@ -179,15 +180,42 @@ class TrafficCache:
     def answer(self, direction: str, available: int) -> str:
         unavailable = (TRAFFIC_UNAVAILABLE if len(TRAFFIC_UNAVAILABLE) <= available
                        else "I can get live traffic, but can't right now.")
-        report = self.reports.get(direction)
-        if report is None:
-            return unavailable
         now = self.wall_clock()
-        if (not 0 <= now - report.observed_at < MAX_AGE_S
-                or not 0 <= now - report.fetched_at < MAX_AGE_S
-                or not 0 <= self.clock() - report.fetched_mono < MAX_AGE_S):
+        mono = self.clock()
+        wanted = (direction,) if direction else ('EB', 'WB')
+        reports = {d: r for d in wanted if (r := self.reports.get(d)) is not None
+                   and now >= r.observed_at and now >= r.fetched_at and mono >= r.fetched_mono}
+        if not reports:
             return unavailable
-        # The age is the source observation's age, not the time of our last poll.
-        age = int((now - report.observed_at) // 60)
-        answer = f'{report.text}. 511 {age}m ago; +delay.'
+        if len(reports) == len(wanted) and all(
+            now - r.observed_at < MAX_AGE_S and now - r.fetched_at < MAX_AGE_S
+            and mono - r.fetched_mono < MAX_AGE_S for r in reports.values()
+        ):
+            # Rebuild both directions from their latest individual reports, so a
+            # partial poll cannot leave an older combined snapshot in the answer.
+            text = (reports[direction].text if direction else 'Beltline Univ<>I-39/90: '
+                    + '; '.join(reports[d].text.split(': ', 1)[1] for d in wanted))
+            age = int((now - min(r.observed_at for r in reports.values())) // 60)
+            answer = f'{text}. 511 {age}m ago; +delay.'
+        else:
+            today = datetime.fromtimestamp(now, CENTRAL).date()
+            def stamp(report, compact=False):
+                observed = datetime.fromtimestamp(report.observed_at, CENTRAL)
+                date = (observed.strftime('%m/%d/%Y ' if observed.year != today.year else '%m/%d ')
+                        if observed.date() != today else '')
+                return date + observed.strftime('%I:%M%p' if compact else '%I:%M %p').lstrip('0')
+            if len(reports) == 1:
+                d, report = next(iter(reports.items()))
+                zone = datetime.fromtimestamp(report.observed_at, CENTRAL).tzname()
+                missing = f' {"WB" if d == "EB" else "EB"} unavailable.' if not direction else ''
+                answer = f'Most recent update {stamp(report)} {zone}: {report.text}. 511; +delay.{missing}'
+            else:
+                # Each direction has its own source timestamp, including a date
+                # for prior days. Do not apply the newer time to both directions.
+                parts = []
+                for d, report in reports.items():
+                    measurement = report.text.split(': ', 1)[1].removeprefix(d + ' ')
+                    zone = datetime.fromtimestamp(report.observed_at, CENTRAL).tzname()
+                    parts.append(f'{d} {stamp(report, compact=True)} {zone} {measurement}')
+                answer = 'Most recent 511 updates: ' + '; '.join(parts) + '. Beltline Univ<>I-39/90; +delay.'
         return answer if len(answer) <= available else unavailable

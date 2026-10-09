@@ -295,11 +295,14 @@ search or model call. `/web Beltline traffic?` also uses this cache. Example wit
 > Beltline Univ<>I-39/90: EB 22m (+5); WB 17m (+0). 511 2m ago; +delay.
 
 Times and additional delays are in minutes; the age comes from 511's oldest
-measurement included in the reply. Both source measurements and successful
-fetches expire after ten minutes, including while waiting to transmit. A failed
-refresh retains the last good report without extending its lifetime. Old source
-timestamps remain old even when fetched again. Missing or expired reports get
-the traffic-unavailable notice immediately. No traffic reports are broadcast
+measurement included in the reply. Only source measurements and successful
+fetches under ten minutes old are described as current. Older reports remain
+available as "Most recent update" with their original source times. Replies
+include the date for previous days and give each direction its own timestamp.
+A failed refresh preserves the last known measurements without changing their
+times. If only one direction is available, the reply identifies the missing
+direction. The unavailable notice is reserved for missing or invalid data, or
+a report that cannot fit in the radio message. No traffic reports are broadcast
 unless someone asks, and normal reply spacing and congestion limits still apply.
 Specific exits, incidents, closures, other roads, and future traffic questions
 continue through general web lookup. Bare "Beltline" requests use this cache only
@@ -723,7 +726,7 @@ After a successful start, the bot introduces its name, package version,
 capabilities, and help in one message, for example:
 
 ```text
-Mesh Potato v2.0.0: Ask about weather, sports, traffic, radio, or a poem. Try /help for examples.
+Mesh Potato v2.0.1: Ask about weather, sports, traffic, radio, or a poem. Try /help for examples.
 ```
 
 The package version is also available locally with `meshpotato --version`.

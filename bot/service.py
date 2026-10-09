@@ -1044,7 +1044,9 @@ class BotService:
         # _send rechecks freshness after any congestion wait; record what actually left.
         reply = compose_reply(parsed.sender, state.program_reply, self.cfg.reply_max_chars,
                               max_bytes=self._reply_max_bytes)
-        self.log.emit('traffic_lookup', outcome='cache' if state.program_reply.startswith('Beltline ') else 'unavailable',
+        outcome = ('cache' if state.program_reply.startswith('Beltline ') else
+                   'last-known' if state.program_reply.startswith('Most recent ') else 'unavailable')
+        self.log.emit('traffic_lookup', outcome=outcome,
                       direction=direction or 'both', reply=reply)
         if sent:
             self.stats.replies_sent += 1
