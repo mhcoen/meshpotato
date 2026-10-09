@@ -156,7 +156,7 @@ return a temporary-unavailability notice when their sources are unavailable.
 1. Potato tip: Ask about weather, sports, traffic, radio, or something fun. Try "What can you do?"
 2. Potato tip: Try "weather" for local conditions and tomorrow's forecast.
 3. Potato tip: Try "What is the traffic on the Madison Beltline?"
-4. Potato tip: Team nicknames work. Try "What is the Pats record?"
+4. Potato tip: Try "What is the Packers record?"
 5. Potato tip: Try "Write a tiny poem about cheese."
 6. Potato tip: Try "What does SNR mean?"
 7. Potato tip: Traveling? Try "weather in Chicago, IL". Name a city for another location.

@@ -14,7 +14,7 @@ TIPS = (
     ('intro', 'general', 'Ask about weather, sports, traffic, radio, or something fun. Try "{ask}What can you do?"'),
     ('weather-local', 'web', 'Try "{ask}weather" for local conditions and tomorrow\'s forecast.'),
     ('traffic-beltline', 'web', 'Try "{ask}What is the traffic on the Madison Beltline?"'),
-    ('sports-pats', 'web', 'Team nicknames work. Try "{ask}What is the Pats record?"'),
+    ('sports-packers-record', 'web', 'Try "{ask}What is the Packers record?"'),
     ('poem-cheese', 'general', 'Try "{ask}Write a tiny poem about cheese."'),
     ('radio-snr', 'general', 'Try "{ask}What does SNR mean?"'),
     ('weather-city', 'web', 'Traveling? Try "{ask}weather in Chicago, IL". Name a city for another location.'),

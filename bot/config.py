@@ -304,7 +304,7 @@ class Config:
     @property
     def help_message(self) -> str:
         prefix = self.trigger_prefix + self.command_prefix
-        examples = ('weather | Pats record | Beltline traffic | write a poem' if self.web_enabled
+        examples = ('weather | Packers record | Brewers next game | Beltline traffic | write a poem' if self.web_enabled
                     else 'write a poem | explain SNR | tell me a joke')
         instruction = f' Start with {self.trigger_prefix.strip()}.' if self.trigger_prefix else ' No commands needed.'
         return f'Ask: {examples}.{instruction} {prefix}help topics for commands.'

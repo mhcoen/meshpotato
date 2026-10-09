@@ -38,7 +38,7 @@ async def test_alias_command_arguments_reach_dice_handler(harness, prefix):
 async def test_discovery_advertises_live_topics(harness, command):
     h = harness(web_enabled=True)
     assert await h.say('Alice: '+command) is Decision.ANSWERED_HELP
-    assert all(word in h.sent[0][1] for word in ('weather', 'Pats', 'traffic'))
+    assert all(word in h.sent[0][1] for word in ('weather', 'Packers record', 'Brewers next game', 'traffic'))
     assert not h.backend.calls
 
 
