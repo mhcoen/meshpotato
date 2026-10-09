@@ -140,8 +140,8 @@ def test_total_timeout_budget_must_be_positive():
 async def test_content_retry_cannot_restart_the_total_timeout(harness):
     backend = FakeBackend(replies=["You are an idiot.", "Four."], delay=0.04)
     h = harness(backend=backend, model_timeout_s=0.07)
-    assert await h.say("Alice: What is two plus two?") is Decision.DROP_BAD_REPLY
-    assert len(backend.calls) == 2 and not h.sent
+    assert await h.say("Alice: What is two plus two?") is Decision.ANSWERED_RECOVERY
+    assert len(backend.calls) == 2 and "Sorry, I couldn't answer that one." in h.sent[-1][1]
     assert h.inbound_records()[-1]["retry_error"] == "timeout"
 
 
@@ -158,15 +158,15 @@ async def test_reception_question_does_not_exempt_an_old_joke(harness):
     joke = "Your antenna's fine, I'm just a bot with a dry sense of humor and no physical form to hold one."
     h = harness(backend=FakeBackend(reply=joke))
     h.history.append(HistoryEntry("MeshAI", f"@[Alice] {joke}"))
-    assert await h.say("Alice: How did my message reach you?", path_len=2) is Decision.DROP_BAD_REPLY
-    assert not h.sent
+    assert await h.say("Alice: How did my message reach you?", path_len=2) is Decision.ANSWERED_RECOVERY
+    assert joke not in h.sent[-1][1]
 
 
 @pytest.mark.parametrize("bad", ["You are an idiot.", "How did my message reach you?"])
 async def test_reception_still_rejects_jabs_and_parrots(harness, bad):
     h = harness(backend=FakeBackend(reply=bad))
-    assert await h.say("Alice: How did my message reach you?", path_len=2) is Decision.DROP_BAD_REPLY
-    assert not h.sent and h.limiter.snapshot()["global_tokens"] == h.cfg.global_burst
+    assert await h.say("Alice: How did my message reach you?", path_len=2) is Decision.ANSWERED_RECOVERY
+    assert bad not in h.sent[-1][1] and h.limiter.snapshot()["global_tokens"] == h.cfg.global_burst-1
 
 
 @pytest.mark.parametrize("failure", ["raise", "timeout"])

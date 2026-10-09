@@ -10,11 +10,11 @@ import re
 import os
 from zoneinfo import ZoneInfo
 from datetime import datetime, timedelta
-from bot.sports_names import TEAM_ALIASES
+from bot.sports_names import TEAM_NAMES, TEAM_ALIASES, AMBIGUOUS_ALIASES, alias_targets
+from bot.lookup_messages import SPORTS_UNAVAILABLE as UNAVAILABLE
 
 LEAGUES = {"nfl": "football", "nba": "basketball", "wnba": "basketball", "mlb": "baseball", "nhl": "hockey"}
 CLARIFY = "Which team and league do you mean? For multiple games, include the opponent or date."
-UNAVAILABLE = "I couldn't verify that score from ESPN's scoreboard; include the team and game date."
 MAX_AGE_S = 60
 
 
@@ -101,9 +101,16 @@ def match_strength(team, query):
     strengths = {"display": 3, "name": 2, "short": 2, "location": 1}
     found = [strengths[key] for key, value in team.items()
              if key in strengths and " " + words(value) + " " in normalized]
-    if any(canonical == words(team["display"]) and " " + alias + " " in normalized
-           for alias, canonical in TEAM_ALIASES.items()):
-        found.append(2)
+    for alias in TEAM_ALIASES.keys() | AMBIGUOUS_ALIASES.keys():
+        if alias in AMBIGUOUS_ALIASES and any(
+                name != alias and alias in words(name).split() and ' '+words(name)+' ' in normalized
+                for name in TEAM_NAMES):
+            continue  # Red Sox is not an ambiguous bare Sox reference.
+        if (any(canonical in {words(team['display']), words(team['name'])} for canonical in alias_targets(alias))
+                and " " + alias + " " in normalized):
+            found.append(2 if alias in AMBIGUOUS_ALIASES else 3)
+    if 2 in found and ' '+words(team['location'])+' ' in normalized:
+        found.append(3)  # Chicago Sox, for example, disambiguates a shared nickname.
     if re.search(r"\b" + re.escape(team["abbreviation"]) + r"\b", query):
         found.append(2)
     return max(found, default=0)
@@ -192,20 +199,13 @@ def collect_scores(query: str, fetch, now: datetime | None = None) -> list[dict]
     # Resolve the team before requesting scoreboards. Catalogs are small and
     # prevent an unrelated league's large game feed from blocking this request.
     if len(leagues) > 1:
-        def identify(league):
-            try:
-                data = fetch(f"https://site.api.espn.com/apis/site/v2/sports/{LEAGUES[league]}/{league}/teams?limit=100")
-                groups = data["sports"][0]["leagues"]
-                catalog = next(g for g in groups if g["slug"] == league)
-                return league, any(matches(_team(t), query) for t in catalog["teams"]), None
-            except (KeyError, TypeError, ValueError, OSError, AttributeError, StopIteration) as exc:
-                return league, False, f"{league}: team catalog unavailable ({type(exc).__name__})"
-        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
-            identified = list(pool.map(identify, leagues))
-        errors = [{"sports_error": error} for _, _, error in identified if error]
+        from bot.sports_details import resolve_teams
+        teams, errors = resolve_teams(query, fetch, require_id=False)
         if errors:
             return errors[:3]
-        leagues = [league for league, found, _ in identified if found]
+        leagues = list(dict.fromkeys(league for league, _ in teams))
+        if len(teams) > 1 and not re.search(r"\b(?:vs|versus|against)\b", query, re.I):
+            return [{"sports_clarify": True}]
     if not leagues:
         return []
     # Adjacent provider dates cover local timezone boundaries. Request each day
@@ -258,6 +258,8 @@ def _team_source(competitor):
 
 def score_answer(pages: list[dict], query: str, now: datetime, available: int):
     """Return a deterministic line and evidence metadata, or a fixed notice."""
+    if any(p.get('sports_clarify') is True for p in pages):
+        return CLARIFY, None
     candidates = {}
     for page in pages:
         try:
@@ -274,8 +276,8 @@ def score_answer(pages: list[dict], query: str, now: datetime, available: int):
     if not candidates:
         return UNAVAILABLE, None
     # Prefer matches to both named teams (opponent disambiguates city nicknames).
-    best = max(sum(matches(t, query) for t in e["teams"]) for e, _ in candidates.values())
-    choices = [(e, stamp) for e, stamp in candidates.values() if sum(matches(t, query) for t in e["teams"]) == best]
+    best = max(sum(match_strength(t, query) for t in e["teams"]) for e, _ in candidates.values())
+    choices = [(e, stamp) for e, stamp in candidates.values() if sum(match_strength(t, query) for t in e["teams"]) == best]
     if len(choices) != 1:
         return CLARIFY, None
     event, stamp = choices[0]
@@ -313,5 +315,4 @@ def sports_answer(pages, query, now, available):
 
 
 def sports_failure(query):
-    from bot.sports_queries import sports_kind
-    return UNAVAILABLE if sports_kind(query) == "score" else "I couldn't verify that from ESPN; include the team or division and league."
+    return UNAVAILABLE

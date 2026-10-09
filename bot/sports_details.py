@@ -9,8 +9,7 @@ from decimal import Decimal, InvalidOperation
 from bot.sports import (LEAGUES, MAX_AGE_S, CLARIFY, _name, _team, _team_source, _time,
                         local_now, matches, match_strength, parse_event, selected_leagues, words)
 from bot.sports_queries import sports_kind
-
-UNAVAILABLE = "I couldn't verify current sports information from ESPN."
+from bot.lookup_messages import SPORTS_UNAVAILABLE as UNAVAILABLE
 
 
 def season_year(league, now):
@@ -36,7 +35,7 @@ def active_season(season, now):
             and timedelta(0) < end - start < timedelta(days=550))
 
 
-def resolve_teams(query, fetch):
+def resolve_teams(query, fetch, *, require_id=True):
     def identify(league):
         try:
             data = fetch(f"https://site.api.espn.com/apis/site/v2/sports/{LEAGUES[league]}/{league}/teams?limit=100")
@@ -45,9 +44,9 @@ def resolve_teams(query, fetch):
             for row in group["teams"]:
                 if matches(_team(row), query):
                     team = row["team"]
-                    if not re.fullmatch(r"\d{1,8}", team["id"]):
+                    if require_id and not re.fullmatch(r"\d{1,8}", team["id"]):
                         raise ValueError("invalid team id")
-                    found.append((league, {**_team_source(row), "id": team["id"]}))
+                    found.append((league, {**_team_source(row), "id": team.get("id")}))
             return found, None
         except (KeyError, TypeError, ValueError, OSError, AttributeError, StopIteration) as exc:
             return [], {"sports_error": f"{league}: team catalog unavailable ({type(exc).__name__})"}
@@ -175,7 +174,7 @@ def _standings_answer(page, query, now, available):
         if index == 0 and len(values) > 1 and gb_key in values[1]:
             gap = "; tied for lead" if values[1][gb_key] == 0 else f"; lead by {_number(values[1][gb_key])} games"
         elif s[gb_key] > 0:
-            gap = f"; {_number(s[gb_key])} games behind"
+            gap = f"; {_number(s[gb_key])} {'game' if s[gb_key] == 1 else 'games'} behind"
         else:
             gap = "; tied for lead"
     elif kind == "behind":
@@ -224,6 +223,8 @@ def _next_answer(page, query, now, available):
 
 
 def details_answer(pages, query, now, available):
+    if sports_kind(query) == 'record_next':
+        return _record_next_answer(pages, query, now, available)
     valid = []
     for page in pages:
         try:
@@ -256,6 +257,14 @@ def collect_details(query, fetch, now=None):
         return errors[:3]
     if len(teams) > 1:
         return [{"sports_detail": "clarify", "fetched_at": now.isoformat()}]
+    if kind == 'record_next':
+        if len(teams) != 1:
+            return [{"sports_detail": "clarify", "fetched_at": now.isoformat()}]
+        league, team = teams[0]
+        identity = f"{team['displayName']} {league}"
+        # Both requests stay in the one bounded web worker / parent deadline.
+        return (collect_details(f'{identity} record', fetch, now)
+                + _collect_next(f'{identity} next game', teams, fetch, now))[:3]
     if kind == "next":
         return _collect_next(query, teams, fetch, now)
     leagues = [teams[0][0]] if teams else _leagues(query)
@@ -297,6 +306,31 @@ def collect_details(query, fetch, now=None):
         return packets[:3]
     except (KeyError, TypeError, ValueError, AttributeError, InvalidOperation):
         return [{"sports_error": f"{league}: standings unavailable"}]
+
+
+def _record_next_answer(pages, query, now, available):
+    """Keep both requested fields, even when only one can be verified."""
+    # Remove the two intent phrases, leaving team/league/date constraints intact.
+    identity = re.sub(r'\b(?:record|standings|next (?:game|match)|name game)\b', '', query, flags=re.I)
+    identity = re.sub(r'\bwhen\b|\bwhat time\b|\bplay(?:ing)? next\b', '', identity, flags=re.I)
+    record, r_evidence = details_answer(pages, identity + ' record', now, 1000)
+    next_game, n_evidence = details_answer(pages, identity + ' next game', now, 1000)
+    if not r_evidence and not n_evidence:
+        return (CLARIFY if any(p.get('sports_detail') == 'clarify' for p in pages) else UNAVAILABLE), None
+    record_match = re.search(r'(?:, |season, )(\d+-\d+(?:-\d+)?)', record) if r_evidence else None
+    record_text = ('Record ' + record_match[1]) if record_match else 'Record unverified'
+    next_text = next_game.removesuffix(' (ESPN).') if n_evidence else 'next game unverified'
+    if not n_evidence and r_evidence:
+        record_text = r_evidence['team_context']['team'] + ': ' + record_text
+    line = f'{record_text}; {next_text} (ESPN).'
+    if len(line) > available:
+        return UNAVAILABLE, None
+    evidence = dict(r_evidence or n_evidence)
+    supporting = [e for e in (r_evidence, n_evidence) if e]
+    evidence['fetched_at'] = min(e['fetched_at'] for e in supporting)
+    evidence['urls'] = [e['url'] for e in supporting]
+    evidence['partial'] = not (r_evidence and n_evidence)
+    return line, evidence
 
 
 def _collect_next(query, teams, fetch, now):

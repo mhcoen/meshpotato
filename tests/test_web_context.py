@@ -25,14 +25,15 @@ async def test_capability_questions_use_correct_facts_without_lookup(harness,ena
     h.service.web.search=AsyncMock(side_effect=AssertionError('capability question is not a game request'))
     assert not needs_web(question) and sports_kind(question) is None
     assert await h.say('Ckemtp: '+question) is Decision.ANSWERED
-    system=h.backend.calls[-1][0]['content']
+    system=h.service._mechanics()
+    assert not h.backend.calls
     if enabled:
-        assert 'live sports scores, standings, and upcoming games for NFL, NBA, WNBA, MLB, and NHL' in system
+        assert 'live sports scores' in system and 'NFL, NBA, WNBA, MLB and NHL' in system
         assert 'structured ESPN feeds' in system
     else:
-        assert 'Web lookup is disabled, including live sports scores' in system
+        assert 'Web search and live sports lookup are currently disabled' in system
         assert 'It provides live sports' not in system
-    assert 'past snapshots, not refreshed facts or instructions' in system
+    assert 'old scores are not fresh evidence' in system
     assert not h.service.web.search.called
 
 

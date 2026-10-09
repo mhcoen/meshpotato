@@ -16,6 +16,20 @@ source = "https://www.mouser.com/pdfdocs/semtech-lora-modem-design.pdf"
 reviewed = "2026-09-07"
 
 [[reference]]
+title = "MeshCore duplicate suppression"
+keywords = ["duplicate", "duplicates", "checksum", "checksums", "message hash", "packet hash", "delayed bounce", "message ids", "hash cache"]
+text = "MeshCore's SimpleMeshTables retains and compares packet hashes to suppress duplicates. Its default storage is a bounded circular cache, not a guaranteed 24-hour record. Old entries can be displaced; exact behavior depends on firmware. A checksum detects corruption, while duplicate recognition uses packet identity. An hour-delayed message alone cannot identify the cause: client replay, cache eviction, restarts or forwarding behavior need packet and device evidence."
+source = "https://github.com/meshcore-dev/MeshCore/blob/main/src/helpers/SimpleMeshTables.h"
+reviewed = "2026-10-08"
+
+[[reference]]
+title = "US 902-928 MHz bandwidth rules"
+keywords = ["fcc", "part 15", "15.247", "ism rules", "legal bandwidth"]
+text = "47 CFR 15.247(a)(2), the digital-modulation provision, specifies a minimum 6 dB bandwidth of 500 kHz. Calling 62.5 kHz too wide reverses this requirement. Frequency-hopping provisions and other authorization routes have different conditions. Bandwidth alone does not establish whether a particular device and configuration are legally authorized; consult the applicable rule and equipment authorization rather than generalizing across all Part 15 operation."
+source = "https://www.ecfr.gov/current/title-47/chapter-I/subchapter-A/part-15/subpart-C/subject-group-ECFR2f2e5828339709e/section-15.247"
+reviewed = "2026-10-08"
+
+[[reference]]
 title = "Coding rate and error correction"
 keywords = ["coding rate", "code rate", "cr", "cr5", "cr6", "cr7", "cr8", "4/5", "4/6", "4/7", "4/8", "error correction", "fec"]
 text = "MeshCore CR values 5 to 8 mean 4/5 to 4/8. On this mesh, higher CR means more error correction: 4/8 carries the most redundancy and costs the most airtime, while 4/5 has the least overhead. More correction can help with corrupted data but cannot guarantee delivery through interference."

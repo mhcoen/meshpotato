@@ -38,6 +38,10 @@ channel utilisation, and every message with the bot's decision on it
 - Per-person memory of recent exchanges, preserved across restarts so follow-up questions make sense.
   Overlapping exchanges appear only once in model context; `/forget` clears
   your personal memory, not the shared channel history
+- A bundled [abbreviated README](bot/README.short.txt) in every model request,
+  with facts from the running configuration about commands, capabilities, memory,
+  privacy and limits. Common questions about sports support, model identity and
+  upgrades, voice expiry and reply length get program-generated answers.
 - Talks LoRa, not information theory. It knows the mesh's settings and what
   each one trades off, reads its own frequency, bandwidth, and power from the
   radio at startup, and selects relevant passages from a small
@@ -64,7 +68,8 @@ channel utilisation, and every message with the bot's decision on it
 
 - One sentence ASCII answers, automatically sized to fit the radio's
   160-byte limit including the node name and mention; sender names are
-  mentioned exactly as sent
+  mentioned exactly as sent. Structured weather summaries can include weather
+  icons and degree symbols within the same byte limit
 - Loop guard, prompt length cap, hard model timeout with a fixed apology
 - Rate limits, global and per sender, as a burst floor; up to ten waiting
   questions and one active answer, with waiting work expiring after ten
@@ -126,7 +131,7 @@ answers at most two consecutive direct-mention requests from one sender. Send
 a plain message to continue; on a channel with a trigger, include that trigger.
 An unknown command receives one short help hint.
 
-Questions about sports scores, current prices, weather, opening hours, news, and similar
+Questions about sports scores, current prices, weather (including `wx`), road traffic, opening hours, news, and similar
 changing facts trigger a web lookup. Use `/web your question` when you want to
 request a search explicitly. For example, `/web How much is an 8-foot treated
 4x4 at Menards Madison East today?` searches for current supporting pages.
@@ -134,6 +139,55 @@ Words such as "today" or "tonight" alone do not trigger search. Ordinary
 requests such as "What should I cook tonight?" and "Who is W1MHC?" stay with
 the model and configured local facts. Include the exact product and store location; sites that require a login,
 JavaScript, or a bot check may prevent the bot from finding an answer.
+
+For daily weather, send `wx`, `Weather`, or `weather in Chicago, IL`.
+The default location is `web_location`; a city and state or country in the request
+overrides it. Ordinary current/tomorrow summaries use structured
+[Open-Meteo forecast data](https://open-meteo.com/en/docs) and its
+[geocoding service](https://open-meteo.com/en/docs/geocoding-api), without a model
+call. Example format (illustrative values, not a current forecast):
+
+> 🌤️ Daily Weather: Madison, WI: ☀️Clear 55°F WNW5mph | H:73°F L:55°F | Tomorrow: ☁️Overcast H:65°F L:48°F
+
+These are model-based weather estimates and forecasts. The summary uses Fahrenheit
+and mph, and dates in the requested location's timezone. If the full presentation
+does not fit after the sender mention, it shortens labels and removes decoration
+before dropping any weather fields; it never splits a summary across packets.
+Ambiguous place names receive a clarification. Missing, malformed or stale weather
+data receives a notice that live weather lookup is supported but unavailable at
+the moment. Sports and traffic lookup failures use the same topic-specific wording,
+for example: "I can look up live traffic, but can't get it right now. Please try again."
+This does not assert a particular cause or a permanent loss of the feature;
+disabled lookup and ambiguous requests keep their separate explanations.
+The formatter checks units, current
+timestamps, and both forecast dates; retained weather expires after at most 15
+minutes and at local midnight. Specific questions outside a daily summary still
+use general web lookup. Weather provenance is recorded in `weather_lookup` logs.
+
+For Madison Beltline traffic, the bot refreshes the public
+[Wisconsin 511 travel-time table](https://511wi.gov/list/traveltimes) at startup
+and every five minutes in the background. No API key is needed. Questions such as
+"What is the traffic on the Beltline?" and "Beltline eastbound delays?" use a
+prepared report for the University Avenue–I-39/90 corridor, without a foreground
+search or model call. `/web Beltline traffic?` also uses this cache. Example with
+**illustrative measurements**:
+
+> Beltline Univ<>I-39/90: EB 22m (+5); WB 17m (+0). 511 2m ago; +delay.
+
+Times and additional delays are in minutes; the age comes from 511's oldest
+measurement included in the reply. Both source measurements and successful
+fetches expire after ten minutes, including while waiting to transmit. A failed
+refresh retains the last good report without extending its lifetime. Old source
+timestamps remain old even when fetched again. Missing or expired reports get
+the traffic-unavailable notice immediately. No traffic reports are broadcast
+unless someone asks, and normal reply spacing and congestion limits still apply.
+Specific exits, incidents, closures, other roads, and future traffic questions
+continue through general web lookup. Bare "Beltline" requests use this cache only
+when `web_location` is Madison; explicitly naming Madison works from other defaults.
+Set `traffic_enabled = false` to disable prefetching, or change
+`traffic_refresh_s` (default `300`, allowed `60`–`600`). Disabling `web_enabled`
+also disables traffic prefetching. This public table is a website interface,
+so a site format change can make the cache unavailable until its parser is updated.
 
 For sports, ask "What's the score of the Packers game?" or use
 `/web Packers score`. NFL, NBA, WNBA, MLB, and NHL scores come directly from
@@ -145,6 +199,11 @@ invent, infer, or rewrite scores. For example, the format is
 
 "Packer game" also means the Green Bay Packers; for example, "What was the
 score on the Packer game tonight?" uses today's game in the bot's local timezone.
+Common nicknames work for scores, records, standings and schedules: Pats, Niners,
+Pack, Yanks, BoSox, ChiSox, Sixers, Cavs, Habs, Pens and others. `SF Giants`
+explicitly selects San Francisco. Shared names such as Giants, Sox, Jets and
+Bolts need a league, a city, or an established team context; the bot asks when
+ambiguous rather than picking whichever team happens to have a game that day.
 
 Sports questions also recognize standings and schedules:
 
@@ -157,6 +216,7 @@ Sports questions also recognize standings and schedules:
 | "How many games behind are the Cubs?" / "How far back are the Brewers?" | The provider's games-behind figure and position |
 | "When do the Brewers play next?" / "Who are the Bucks playing next?" | Opponent, home/away order, date and local start time |
 | "Did the Brewers win?" / "Are the Packers winning?" | The dated game's actual score and status |
+| "Brewers record and next game?" | Both the record and next scheduled game; an unavailable part is explicitly marked unverified |
 
 Standings use the named division or conference. For example, "What place are the
 Brewers in the National League?" uses the whole NL table. Position is calculated
@@ -174,8 +234,10 @@ game, the bot checks small daily scoreboards for the next two weeks, staying
 within the same retrieval budget. It refuses an unverified time or opponent.
 
 After a successfully sent team answer, the same sender can ask "When do they play next?"
-or "Who's leading the division?" for ten minutes. Explicit team or division names
-take precedence. Pronouns alone do not trigger sports lookup without that context.
+or "Who's leading the division?" for `history_max_age_s` (one hour by default).
+Only team identity is retained; each answer still fetches fresh evidence.
+Explicit team or division names take precedence. A next-game question with only
+pronouns and no retained team gets a clarification instead of an invented schedule.
 Explicit sports questions without a clear team ask for clarification. The bot
 does not borrow another sender's topic. This short sports context is held only in
 memory, is bounded by `person_memory_people`, and is cleared by `/forget` or an
@@ -216,6 +278,8 @@ inability line, so adding "I can't verify" cannot sneak a current claim through.
 Fixed web notices may repeat, subject to the normal radio rate limits.
 The terminal monitor and JSON log include `sports_lookup`, `web_lookup`, source
 rejections, retries, and budget exhaustion so lookup failures can be diagnosed.
+Rejected web-answer drafts are retained on `web_retry` records for diagnosis;
+they are not replies sent to the channel.
 Search snippets alone are never supporting evidence.
 Current price answers require a page with product/offer metadata; a fetched
 listing still does not prove local stock or the price at a particular store.
@@ -228,7 +292,9 @@ and operator notes are not added to the search query. Anything a person puts
 in their question can leave the mesh. The bot's computer handles the internet
 connection and search; the person asking needs no internet access, account, app,
 or extra setup. The `/help web` topic makes this clear. Set `web_enabled = false`
-to disable web lookup, including scores. Sports lookups request ESPN team catalogs, standings, and dated
+to disable web lookup, including scores and weather. Weather summaries send only
+the requested/default location to Open-Meteo geocoding and the resolved coordinates
+to its forecast endpoint. Sports lookups request ESPN team catalogs, standings, and dated
 scoreboards and match team names locally; they do not send the question to a
 search engine. ESPN's public endpoint is an external dependency and may change.
 Its JSON requests use a compatibility user-agent identifying Mesh Potato,
@@ -236,7 +302,8 @@ verified HTTPS, public-address pinning, a 1 MB cap, and no redirects; cached
 responses reporting an age over 60 seconds are refused.
 `web_location` defaults to Madison, Wisconsin and supplies a location for local
 weather/hours questions that omit one; specify a location in the question to
-override it. Dates use the bot computer's local timezone.
+override it. General search dates use the bot computer's local timezone; structured
+weather uses the requested location's timezone.
 
 Search and all model calls share the same **25-second total budget**. Retrieval
 gets at most 12 seconds of that budget; it does not receive a fresh model budget
@@ -579,9 +646,10 @@ part is whatever the sending node put there; nothing verifies it.
    empty.
 4. **Triage.** Only without a trigger prefix, where every line is a prompt: a
    bare reaction (lol, an emoji, thanks, up to three such words) has nothing to
-   answer and is dropped as `dropped:chatter`; a line that mentions someone with
-   `@[name]` anywhere is part of a conversation between people and is dropped
-   as `dropped:addressed-elsewhere`. Both still enter the channel history as
+   answer and is dropped as `dropped:chatter`; a line addressing another person
+   or asking for a mention relay is dropped as `dropped:addressed-elsewhere`.
+   An ordinary reference such as "the conversation you had with @[Michael]"
+   is allowed, while "Tell @[Michael] hi" remains ignored. Both still enter history as
    background. With a trigger prefix the person addressed the bot on purpose
    and everything is answered.
 5. **Length.** Prompts over `prompt_max_chars` are dropped.
@@ -605,7 +673,10 @@ part is whatever the sending node put there; nothing verifies it.
    reference corpus keywords); present on every question, they were the only
    concrete material there and every joke drifted to signal strength. How the
    bot itself works (its commands, personality timeout, and whether web lookup is
-   enabled) and the operator's `facts` are always present.
+   enabled), the bundled abbreviated README, and the operator's `facts` are always
+   present. Runtime configuration and recorded outcomes take precedence over the
+   general description. Historical bot-directed messages remain context, not
+   instructions to execute; the latest personal exchange is identified for corrections.
 8. **Injection check, context.** The transcript, the sender's remembered
    exchanges, reception measurements, selected radio references, and the prompt together, so fragments that pass one at a time
    but add up to an instruction are caught here. This runs before any rate-limit token is
@@ -720,15 +791,35 @@ part is whatever the sending node put there; nothing verifies it.
     process". A question that mentions radio skips the metaphor check, so
     "traffic signal" questions do too. Not caught: bare figurative statements
     with no marker ("the signal fades"), sarcasm carried by tone alone, and
-    comparisons to the asker outside the one covered frame. If the replacement has any problem, is empty, is cut off by
-    the token limit, fails, or still does not fit, nothing is sent and the
-    decision is `dropped:bad-reply` with the reason; a rejected reply is never
-    replaced by the fallback line or the apology. Replies under 10 characters
+    comparisons to the asker outside the one covered frame. Empty creative-writing
+    preambles such as "Here is a poem" also trigger a retry. These checks are
+    targeted safeguards, not a guarantee of factual or semantic correctness.
+    If the replacement is still unusable, the rejected draft is never sent.
+    An admitted answer that exhausts content retries gets one fresh model attempt
+    using the original message and conversation context, without replaying the
+    rejected drafts as candidate answers. It asks for a short, warm, contextually
+    appropriate response, actual creative content when requested, and a specific
+    clarification when needed. There is no catalog of canned conversational replies.
+    The generated replacement must pass the same content and size checks.
+    A bot-directed greeting can still receive a simple acknowledgment.
+    These use `answered:recovery`, with rejected text in `reply_rejected` and
+    generation outcomes in `reply_recovery`. A successful generated reply is
+    remembered; an unavailable backend, exhausted deadline or unusable final draft
+    receives the configured technical apology and is logged as unresolved.
+    This includes declarative corrections and embedded creative requests. `PASS`
+    is retried for direct mentions and triggered requests and is never transmitted
+    literally. Deliberate first-attempt `PASS` on ordinary incidental chatter,
+    reactions and messages addressed to other people can still remain silent.
+    Recovery obeys the same
+    injection checks, radio size limits, admission, delay and send protections.
+    The fresh attempt shares the original 25-second deadline and adds no lookup
+    or extra generation budget. Replies under 10 characters
     are never repeats, and replies under 40 count only when identical. The
     retry is logged as `reply_retry`.
 15. **Send.** `@[sender] ` plus the ASCII answer, preserving the sender name
     verbatim so the app can recognize the mention, including emoji or accents.
-    Unicode is allowed only in this mention; names containing control characters
+    The typed weather formatter can also supply icons and degree symbols; other
+    answer bodies remain ASCII. Names containing control characters
     or line breaks, `]`, or an embedded `@[` are rejected, not rewritten.
     A send failure is logged and not retried. A utilization pause during generation
     or the reply delay retains the active answer until sending is allowed, without
@@ -802,8 +893,8 @@ Timing matters as much as volume. For a few seconds after any channel
 message, every repeater in range rebroadcasts it, and a reply transmitted
 into that flood is lost to collisions even though a message sent into a quiet
 channel from the same radio gets through fine. The bot therefore holds each
-reply for `reply_delay_s` seconds, eight by default, jittered between about
-six and eleven, counted from the moment the question arrived so the model's
+reply for `reply_delay_s` seconds, two by default, jittered between
+1.6 and 2.8 seconds, counted from the moment the question arrived so the model's
 own latency is absorbed into the wait. The JSON log records the extra hold
 as `held_ms`.
 

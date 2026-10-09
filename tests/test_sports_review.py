@@ -117,6 +117,12 @@ CHAT = [
 
 @pytest.mark.parametrize('query',CHAT)
 async def test_ordinary_chat_uses_model_without_search(query,harness):
+    if query == 'When do they play next?':
+        h = harness(web_enabled=True)
+        h.service.web.search = AsyncMock(side_effect=AssertionError('clarify first'))
+        assert await h.say('Alice: '+query) == Decision.ANSWERED
+        assert 'Which team' in h.sent[-1][1] and not h.backend.calls
+        return
     assert sports_kind(query) is None
     h=harness(web_enabled=True, backend=FakeBackend("I need a little more context to answer that."))
     h.service.web.search=AsyncMock(side_effect=AssertionError('ordinary chat must not fetch'))

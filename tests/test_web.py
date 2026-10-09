@@ -30,6 +30,7 @@ def draft(answer="The 8 GB board is listed at $125 before tax", quote=TEXT, sour
     "How much is an 8-foot treated 4x4 at Menards today?", "Will it rain tomorrow?",
     "What are the opening hours of Madison Central Library?", "Latest Raspberry Pi price?",
     "Who won the game tonight?", "What is the weather in Chicago?",
+    "what is the weather?",
 ])
 def test_current_questions_route_to_web(prompt):
     assert needs_web(prompt)

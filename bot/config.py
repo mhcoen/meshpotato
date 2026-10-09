@@ -50,7 +50,7 @@ class Config:
     trigger_prefix: str = ""
     reply_max_chars: int | None = None
     prompt_max_chars: int = 160
-    reply_delay_s: float = 8.0
+    reply_delay_s: float = 2.0
     shorten_retries: int = 2
     too_long_reply: str = "That answer will not fit in one message, ask me something narrower."
     apology: str = "Sorry, I couldn't answer that one."
@@ -78,6 +78,10 @@ class Config:
     # [web] Search and model calls share model_timeout_s; no paid search API.
     web_enabled: bool = True
     web_location: str = "Madison, Wisconsin"
+
+    # [traffic] Public 511 Beltline travel-time cache; requires web_enabled.
+    traffic_enabled: bool = True
+    traffic_refresh_s: float = 300.0
 
     # [fortune]
     fortune_enabled: bool = True
@@ -180,6 +184,8 @@ class Config:
             errors.append("too_long_reply must fit with room for a 20 character sender name")
         if self.reply_delay_s < 0:
             errors.append("reply_delay_s must not be negative")
+        if self.traffic_refresh_s < 60 or self.traffic_refresh_s > 600:
+            errors.append("traffic_refresh_s must be between 60 and 600 seconds")
         if self.model_timeout_s <= 0:
             errors.append("model_timeout_s must be positive")
         try:

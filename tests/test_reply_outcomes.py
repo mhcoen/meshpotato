@@ -56,18 +56,18 @@ async def test_greeting_with_question_still_requires_an_answer(harness):
 
 async def test_decline_sent_and_repeat_outcomes_are_truthful_context(harness):
     repeated = "I did not decline, I responded honestly and clearly."
-    h = harness(backend=FakeBackend(replies=["PASS", repeated, repeated, repeated, "A draft was rejected."]),
+    h = harness(backend=FakeBackend(replies=["PASS", repeated, repeated, repeated, "My words got tangled there.", "A draft was rejected."]),
                 global_burst=10, sender_burst=10)
     assert await h.say("Michael: We will sort that out later") is Decision.DECLINED
     assert await h.say("Michael: Why did you decline?") is Decision.ANSWERED
     assert "model chose PASS; no reply was sent" in h.backend.calls[-1][0]["content"]
-    assert await h.say("Michael: Why are you denying that?") is Decision.DROP_BAD_REPLY
+    assert await h.say("Michael: Why are you denying that?") is Decision.ANSWERED_RECOVERY
     assert await h.say("Michael: What happened this time?") is Decision.ANSWERED
     system = h.backend.calls[-1][0]["content"]
     assert system.index("model chose PASS") < system.index("reply sent (radio acknowledged")
-    assert "reply drafts rejected for repeating an earlier reply; no reply was sent" in system
+    assert "fresh generated reply sent after rejected drafts" in system
     assert repeated not in system
-    assert len(h.sent) == 2
+    assert len(h.sent) == 3
 
 
 async def test_outcomes_are_sender_scoped_bounded_and_expire(harness, clock):
@@ -243,7 +243,7 @@ async def test_blocked_body_and_model_errors_never_leak_through_activity(harness
 
 async def test_rejection_reason_is_application_owned_not_rejected_draft(harness):
     h = harness(backend=FakeBackend("You are an idiot."))
-    assert await h.say("Michael: How are you?") is Decision.DROP_BAD_REPLY
+    assert await h.say("Michael: How are you?") is Decision.ANSWERED_RECOVERY
     facts = activity_facts(h.service._outcome_context("Michael"))[-1]
     assert facts["reason"] == "draft contained a personal jab"
     assert "You are an idiot" not in h.service._outcome_context("Michael")

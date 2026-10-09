@@ -2,8 +2,8 @@
 
 Only used when the trigger prefix is empty, that is, when the bot answers the
 whole channel. A bare reaction (lol, an emoji, a thumbs up) has nothing to
-answer, and a line that mentions someone with @[name] is part of a conversation
-between people. Answering either costs airtime and reads as butting in. With
+answer, and messages addressed to other people or requesting mention relays stay
+out of the bot's lane. Grammatical references to a third party can remain context. With
 a trigger prefix the person addressed the bot on purpose and these do not apply.
 """
 
@@ -29,6 +29,8 @@ REACTIONS = frozenset({
 def social_acknowledgment(prompt: str, bot_name: str) -> str:
     """A safe fallback for a greeting or farewell explicitly addressed to this bot."""
     names = "|".join(re.escape(n) for n in {bot_name, "mesh potato", "meshpotato", "potato", "bot"} if n)
+    if re.fullmatch(rf"(?:thanks|thank you)(?: for .+)?\s+(?:lil |little )?(?:{names})[.!]*", prompt.strip(), re.I):
+        return "You're welcome."
     match = re.match(
         rf"^(good\s*night|gnite|g'night|night|gn|good\s*morning|hello|hi|hey|bye|goodbye)"
         rf"[\s,]+(?:{names})(?=$|[\s,.!?])", prompt.strip(), re.I,
@@ -57,8 +59,18 @@ def is_reaction(prompt: str) -> bool:
 
 
 def mentions_someone(prompt: str, bot_name: str = "") -> bool:
-    """A @[name] anywhere in the body, other than the bot's own name, means the line is for a person."""
-    names = _MENTION_RE.findall(prompt)
-    if not names:
+    """Ignore human addressees/relay requests, but allow a referenced third party."""
+    matches = list(_MENTION_RE.finditer(prompt))
+    if not matches:
         return "@[" in prompt  # an unclosed mention is still not for the bot
-    return any(name.strip() != bot_name for name in names)
+    for mention in matches:
+        if mention[1].strip().casefold() == bot_name.casefold():
+            continue
+        before = prompt[:mention.start()].rstrip()
+        # Conservative exception for an ordinary grammatical reference. A relay,
+        # quote request or a trailing thank-you still stays out of the bot's lane.
+        reference = re.search(r'\b(?:with|about|from|between|of)\s*$', before, re.I)
+        relay = re.search(r'\b(?:tell|repeat|send|relay|forward|quote)\b', before, re.I)
+        if not reference or relay:
+            return True
+    return False

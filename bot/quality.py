@@ -5,7 +5,8 @@ Small models copy their own earlier replies out of the context blocks, echo the
 message they were sent, reach for the same signal-through-the-static image in
 every joke, and aim jokes at the asker, and all of it survives every instruction
 against it. These checks run on the shaped reply, before it costs airtime. The
-caller gives the model one more try with a pointed nudge, then stays silent.
+caller gives the model one more try with a pointed nudge, then acknowledges an
+unresolved request. Earlier triage can still skip reactions and human chatter.
 
 The two content checks are deliberately structural rather than word lists. A radio
 metaphor needs a simile or comparison whose object is a radio noun, a stock
@@ -55,7 +56,7 @@ _WH_RE = re.compile(
 _ASKS_RE = re.compile(
     r"^(?:what|what's|whats|where|where's|when|who|who's|whom|whose|why|how|how's|which|is|are|am|was|were|can|could|"
     r"do|does|did|will|would|should|shall|may|might|have|has|had|tell|give|show|explain|describe|list|name|"
-    r"recommend|suggest|remind|help|any|anyone|anybody)\b",
+    r"recommend|suggest|remind|help|write|compose|translate|stop|pick|choose|correct|check|any|anyone|anybody)\b",
     re.I,
 )
 _NUMBER_RE = re.compile(r"-?\d+(?:\.\d+)?")
@@ -203,6 +204,8 @@ def looks_like_question(prompt: str, bot_name: str = "") -> bool:
     if "?" in prompt:
         return True
     text = _POLITE_RE.sub("", prompt.strip())
+    if re.search(r"\b(?:that(?:'s| is) wrong|makes no sense|doesn't make sense|you (?:explicitly )?declined|stop repeating|needs? (?:fixing|to be fixed)|(?:write|compose|translate) (?:me |us |a |an |this |that |the )|you(?:'re| are) acting|(?:bot|ai).{0,30}ignore me|yes (?:you )?can indeed|i get that|i was (?:adding|told)|this seems too? fast)\b", text.replace('’', "'"), re.I):
+        return True
     if _ASKS_RE.match(text):
         return True
     names = sorted(set(_VOCATIVES) | ({bot_name.lower()} if bot_name else set()), key=len, reverse=True)
@@ -234,7 +237,8 @@ def is_parrot(body: str, prompt: str) -> bool:
         return False  # "Hello?" answered with "Hello." is how people talk
     if b == p:
         return True
-    if len(b) >= 4 and b in p and (len(b.split()) > 3 or not looks_like_question(prompt)):
+    imperative = re.match(r'^(?:write|compose|translate|stop)\b', prompt.strip(), re.I)
+    if len(b) >= 4 and b in p and (len(b.split()) > 3 or imperative or not looks_like_question(prompt)):
         return True  # a short fragment may answer a choice question; a sentence lifted out of it is a relay
     if len(p.split()) >= 3 and b.startswith(p):
         return True
@@ -274,6 +278,8 @@ def reply_problem(body: str, prompt: str, same_sender: list[str], other_senders:
     where radio imagery is on topic and the metaphor check does not apply."""
     if has_mention(body):
         return Problem("mention")
+    if incomplete_request(body, prompt):
+        return Problem('unfulfilled', body)
     if is_parrot(body, prompt):
         return Problem("parrot")
     earlier = find_repeat(body, same_sender, other_senders)
@@ -289,8 +295,32 @@ def reply_problem(body: str, prompt: str, same_sender: list[str], other_senders:
     return None
 
 
+def incomplete_request(body: str, prompt: str) -> bool:
+    """Conservative checks for empty promises, not a general semantic oracle."""
+    if re.search(r'\b(?:poem|haiku|ode|joke|translate|translation)\b', prompt, re.I):
+        # A string of introductions is still not the requested content. Strip
+        # only complete preamble clauses; actual creative text must remain.
+        preamble = re.compile(
+            r"^(?:(?:of course|sure|yes|certainly|absolutely)[,!]?\s*)?"
+            r"(?:here(?: is|'s)\s+|i(?: will|'ll| can)\s+(?:write|give you|provide|tell)\s+)"
+            r"(?:a |the |your )?(?:poem|haiku|ode|joke|translation|one)(?: for you)?"
+            r"(?=$|[,!.:;])[,!.:;]*\s*(?:and\s+)?", re.I)
+        remainder = body.strip()
+        while match := preamble.match(remainder):
+            remainder = remainder[match.end():].strip()
+            if not remainder:
+                return True
+        if re.fullmatch(r"(?:of course[,!]?\s*|sure[,!]?\s*)?(?:here(?: is|'s)|i(?: will|'ll| can))\s+(?:write |give you |provide )?(?:a |the |your )?(?:poem|haiku|ode|joke|translation)(?: for you)?[.!:]*", body.strip(), re.I):
+            return True
+        if re.fullmatch(r"I (?:cannot|can't) (?:create|write|tell|provide) (?:a |the |your )?(?:poem|haiku|ode|joke)(?: for you)?[.!]*", body.strip(), re.I):
+            return True
+    return bool(re.fullmatch(r'(?:weather|traffic) report requested[.!]*', body.strip(), re.I))
+
+
 def nudge(problem: Problem) -> str:
     """The extra user turn for the one retry. It never offers PASS: given the exit, the model takes it."""
+    if problem.kind == 'unfulfilled':
+        return 'The requested content is missing. Supply the actual short answer or creative text, not a preamble, promise or unsupported capability refusal.'
     if problem.kind == "mention":
         return "Your reply addressed or mentioned someone with @[. Never do that. Answer the message again without it."
     if problem.kind == "parrot":

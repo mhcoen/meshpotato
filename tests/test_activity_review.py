@@ -38,14 +38,14 @@ async def test_pause_reason_distinguishes_no_queue_from_expired_deadline(harness
     ("", "Hi @[Bob]", Decision.DROP_ADDRESSED_ELSEWHERE),
 ])
 async def test_incidental_chatter_does_not_evict_rejected_question(harness, prefix, chatter, decision):
-    h = harness(backend=FakeBackend(replies=["You are an idiot.", "You are an idiot.", "The earlier draft was rejected."]),
+    h = harness(backend=FakeBackend(replies=["You are an idiot.", "You are an idiot.", "Feeling bright as a button today.", "The earlier draft was rejected."]),
                 trigger_prefix=prefix, global_burst=10, sender_burst=10)
-    assert await h.say("Alice: " + prefix + "How are you?") is Decision.DROP_BAD_REPLY
+    assert await h.say("Alice: " + prefix + "How are you?") is Decision.ANSWERED_RECOVERY
     for _ in range(5):
         assert await h.say("Alice: " + chatter) is decision
     assert await h.say("Alice: " + prefix + "Why did you skip my question?") is Decision.ANSWERED
     system, user = [m["content"] for m in h.backend.calls[-1]]
-    assert any(row["decision"] == "dropped:bad-reply" for row in activity_facts(system))
+    assert any(row["decision"] == "answered:recovery" and 'fresh generated reply sent' in row['status'] for row in activity_facts(system))
     assert all(row["decision"] != decision.value for row in activity_facts(system))
     assert all(chatter not in row["message_excerpt"] for row in activity_excerpts(user))
     assert any("How are you?" in row["message_excerpt"] for row in activity_excerpts(user))

@@ -217,7 +217,7 @@ async def test_followup_context_is_per_sender_and_expires(harness,service_clock,
     await h.say("Michael: Brewers standings?")
     await h.say("Alice: When do they play next?")
     assert h.service.web.search.await_count == 1
-    clock.advance(601)
+    clock.advance(h.cfg.history_max_age_s+1)
     await h.say("Michael: When do they play next?")
     assert h.service.web.search.await_count == 1
 

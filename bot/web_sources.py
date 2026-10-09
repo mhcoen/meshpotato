@@ -23,6 +23,8 @@ from bs4 import BeautifulSoup
 from ddgs import DDGS
 from bot.web_evidence import qualifiers
 
+JSON_ORIGINS = {'site.api.espn.com', 'api.open-meteo.com', 'geocoding-api.open-meteo.com'}
+
 def extract_text(html: str) -> str:
     # Keep tables: retail prices and hours can be in them.
     extracted = trafilatura.extract(
@@ -80,7 +82,7 @@ def fetch_page(url: str, *, json_response: bool = False) -> dict:
         for _ in range(4):
             if time.monotonic() >= deadline:
                 raise TimeoutError("page deadline")
-            if json_response and (urlsplit(url).hostname != "site.api.espn.com" or urlsplit(url).scheme != "https"):
+            if json_response and (urlsplit(url).hostname not in JSON_ORIGINS or urlsplit(url).scheme != "https"):
                 raise ValueError("unexpected scoreboard origin")
             host, port, address, scheme = public_target(url)
             conn = http.client.HTTPConnection(host, port, timeout=4)
@@ -124,7 +126,7 @@ def fetch_page(url: str, *, json_response: bool = False) -> dict:
                 if json_response:
                     # Scores may be cached by the provider, but never knowingly use
                     # a stale CDN response or follow a redirect to another provider.
-                    if urlsplit(url).hostname != "site.api.espn.com" or int(response.getheader("age", "0")) > 60:
+                    if urlsplit(url).hostname not in JSON_ORIGINS or int(response.getheader("age", "0")) > 60:
                         raise ValueError("stale or unexpected scoreboard origin")
                     data = json.loads(raw)
                     return data if isinstance(data, dict) else {}
@@ -154,6 +156,9 @@ def fetch_page(url: str, *, json_response: bool = False) -> dict:
 
 
 def collect(query: str) -> list[dict]:
+    from bot.weather import collect_weather, weather_location
+    if weather_location(query) is not None:
+        return collect_weather(query, lambda url: fetch_page(url, json_response=True))
     from bot.sports import collect_sports
     from bot.sports_queries import is_sports_query
     if is_sports_query(query):

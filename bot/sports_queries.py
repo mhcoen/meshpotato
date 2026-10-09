@@ -1,6 +1,6 @@
 """Sports intents and bounded follow-up wording; no model or network routing."""
 import re
-from bot.sports_names import TEAM_NAMES, TEAM_ALIASES
+from bot.sports_names import TEAM_NAMES, TEAM_ALIASES, AMBIGUOUS_ALIASES
 
 # These nicknames also name ordinary things. Lowercase use needs sports context.
 COMMON_NAMES = frozenset('sun sky heat wild fire bulls rays kings jazz wings reds twins magic thunder lightning stars sparks dream liberty fever storm mercury aces nets pelicans hornets hawks rockets warriors giants rangers guardians athletics royals angels tigers pirates cardinals orioles blue jays saints jets bears lions panthers falcons eagles ravens commanders titans chargers colts browns bills dolphins ducks senators predators avalanche islanders devils kraken capitals'.split())
@@ -14,12 +14,12 @@ def normalized(query):
 
 def has_team(query):
     text = " " + normalized(query) + " "
-    if any(" " + alias + " " in text for alias in TEAM_ALIASES):
+    if any(" " + alias + " " in text for alias in TEAM_ALIASES.keys() | AMBIGUOUS_ALIASES.keys()):
         return True
     for name in TEAM_NAMES:
         if " " + normalized(name) + " " not in text:
             continue
-        if name not in COMMON_NAMES or SCOPE.search(query):
+        if name not in COMMON_NAMES or SCOPE.search(query) or re.search(r"\b(?:record|score|play|playing|rank)\b", query, re.I):
             return True
         if any(m.group()[0].isupper() for m in re.finditer(r"\b" + re.escape(name) + r"\b", query, re.I)):
             return True
@@ -42,6 +42,9 @@ def sports_kind(query, *, has_context=False):
     q = query.lower().replace("’", "'")
     team = has_team(query)
     hint = team or bool(re.search(r"\b(?:nfl|nba|wnba|mlb|nhl)\b", q)) or (has_context and bool(re.search(r"\b(?:they|their|them)\b", q)))
+    next_game = bool(re.search(r"\b(?:next (?:game|match)|play(?:ing)? next)\b|\bwhen\b.*\bplay\b|\b(?:when|what time)\b.*\b(?:game|match)\b", q))
+    if hint and next_game and re.search(r"\b(?:record|standings)\b", q):
+        return "record_next"
     if re.search(r"\bgames? (?:behind|back)\b", q) or (hint and re.search(r"\bhow far (?:behind|back|ahead)\b", q)):
         return "behind"
     if hint and re.search(r"\b(?:first|last|\d+(?:st|nd|rd|th)) place\b", q):
@@ -52,9 +55,10 @@ def sports_kind(query, *, has_context=False):
         return "standings"
     if re.search(r"\bstandings\b", q) or (hint and re.search(r"\bstanding\b|\b(?:what|which) (?:place|position)|\brank(?:ed|ing)?\b|\bwhere\b.*\bstand\b", q)):
         return "standings"
-    if hint and (re.search(r"\b(?:next (?:game|match)|play(?:ing)? next)\b", q)
-                 or re.search(r"\bwhen\b.*\bplay\b|\b(?:when|what time)\b.*\b(?:game|match)\b", q)):
+    if hint and next_game:
         return "next"
+    if not hint and next_game and re.search(r"\b(?:they|their|them)\b", q):
+        return "next"  # Missing team needs clarification, never a model-invented date.
     if hint and re.search(r"\bhow\b.*\bdoing\b", q):
         return "score" if re.search(r"\b(?:game|tonight|right now)\b", q) else "overview"
     if is_score_query(q) or (hint and re.search(r"\b(?:who won|did .+ win|winning|losing|result)\b", q)):
@@ -67,6 +71,13 @@ def is_sports_query(query):
 
 
 def with_team_context(query, context):
+    # A shared nickname can be resolved by an already established league, without
+    # importing any old scores. Explicit new league/sport wording always wins.
+    if context and not re.search(r"\b(?:nfl|nba|wnba|mlb|nhl|football|baseball|basketball|hockey)\b", query, re.I):
+        short = normalized(context['team']).split()[-1]
+        qualified = re.search(r'\b(?:sf|san francisco|ny|new york|boston|chicago|red sox|white sox|texas|arizona|st\.? louis|carolina|florida|los angeles|sacramento|winnipeg)\b', query, re.I)
+        if not qualified and short in {'giants', 'jets', 'rangers', 'panthers', 'cardinals', 'kings', 'sox'} and re.search(r'\b'+short+r'\b', query, re.I):
+            query = f"{query} ({context['team']}, {context['league'].upper()})"
     if (context and sports_kind(query, has_context=True) and not has_team(query)
             and not re.search(r"\b(?:nl|al|nfc|afc|nfl|nba|wnba|mlb|nhl)\b", query, re.I)):
         if re.search(r"\b(?:they|their|them|division)\b", query, re.I):

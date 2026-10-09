@@ -29,6 +29,7 @@ from bot.logcheck import check_log
 from bot.ratelimit import RateLimiter
 from bot.service import BotService, ChannelError
 from bot.fortune import FortuneScheduler
+from bot.traffic import TrafficCache
 from bot.utilization import UtilizationMonitor
 from bot.lifecycle import disconnect
 from bot.instance import InstanceError, SingleInstance
@@ -87,6 +88,8 @@ def build_service(cfg: Config, meshcore, log: EventLog, references: tuple[Refere
         monitor=monitor,
         references=references,
     )
+    if cfg.web_enabled and cfg.traffic_enabled:
+        service.traffic = TrafficCache(log, refresh_s=cfg.traffic_refresh_s)
     if cfg.fortune_enabled:
         service.fortune = FortuneScheduler(
             service=service,

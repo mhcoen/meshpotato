@@ -1,5 +1,34 @@
 """Routing hints from ESPN team catalogs, September 2026; facts still require live feeds."""
-TEAM_ALIASES = {"packer": "green bay packers"}
+# Only team-specific aliases belong here: cities alone can span several leagues.
+TEAM_ALIASES = {
+    "packer": "green bay packers", "pack": "green bay packers",
+    "pats": "new england patriots", "niners": "san francisco 49ers",
+    "sf 49ers": "san francisco 49ers", "sf giants": "san francisco giants",
+    "sfg": "san francisco giants", "ny giants": "new york giants",
+    "nyg": "new york giants", "ny jets": "new york jets",
+    "bucs": "tampa bay buccaneers", "jags": "jacksonville jaguars",
+    "fins": "miami dolphins",
+    "yanks": "new york yankees", "bosox": "boston red sox",
+    "chisox": "chicago white sox", "d backs": "arizona diamondbacks",
+    "dbacks": "arizona diamondbacks", "jays": "toronto blue jays",
+    "nats": "washington nationals", "a s": "athletics",
+    "cavs": "cleveland cavaliers", "mavs": "dallas mavericks",
+    "sixers": "philadelphia 76ers", "76 ers": "philadelphia 76ers",
+    "wolves": "minnesota timberwolves", "blazers": "portland trail blazers",
+    "pels": "new orleans pelicans", "habs": "montreal canadiens",
+    "pens": "pittsburgh penguins", "avs": "colorado avalanche",
+    "caps": "washington capitals", "leafs": "toronto maple leafs",
+    "sens": "ottawa senators", "preds": "nashville predators",
+}
+AMBIGUOUS_ALIASES = {
+    "sox": ("boston red sox", "chicago white sox"),
+    # Both teams are commonly called the Bolts; league context must decide.
+    "bolts": ("los angeles chargers", "tampa bay lightning"),
+}
+
+
+def alias_targets(alias):
+    return AMBIGUOUS_ALIASES.get(alias, (TEAM_ALIASES[alias],) if alias in TEAM_ALIASES else ())
 
 TEAM_NAMES = frozenset({
     '49ers',

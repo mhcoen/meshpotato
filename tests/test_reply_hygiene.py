@@ -10,19 +10,21 @@ from tests.conftest import FakeBackend
 LONG = "Your antenna's fine, I'm just a bot with a dry sense of humor and no physical form to hold one."
 
 
-async def test_repeat_gets_one_retry_then_silence(harness):
+async def test_repeat_gets_one_retry_then_contextual_fallback(harness):
     h = harness(backend=FakeBackend(replies=[LONG, LONG, LONG]), global_burst=9, sender_burst=9)
     assert await h.say("Alice: need an antenna?") is Decision.ANSWERED
-    assert await h.say("Alice: deaf as a post") is Decision.DROP_BAD_REPLY
-    assert len(h.backend.calls) == 3 and len(h.sent) == 1
+    assert await h.say("Alice: deaf as a post") is Decision.ANSWERED_RECOVERY
+    assert len(h.backend.calls) == 4 and len(h.sent) == 2
     retry = [r for r in h.records if r["event"] == "reply_retry"]
     assert retry and retry[0]["reason"] == "repeat" and retry[0]["matched"] == LONG
     inbound = h.inbound_records()[-1]
-    assert inbound["reason"] == "repeat" and inbound["retries"] == 1 and inbound["reply"] == LONG
-    assert h.backend.calls[-1][-2] == {"role": "assistant", "content": LONG}
-    assert "already sent" in h.backend.calls[-1][-1]["content"] and LONG in h.backend.calls[-1][-1]["content"]
+    assert inbound["reason"] == "repeat" and inbound["retries"] == 1
+    assert "Sorry, I couldn't answer that one." in inbound['reply']
+    assert any(r['event']=='reply_rejected' and r['reply']==LONG for r in h.records)
+    assert h.backend.calls[-2][-2] == {"role": "assistant", "content": LONG}
+    assert "already sent" in h.backend.calls[-2][-1]["content"] and LONG in h.backend.calls[-2][-1]["content"]
     assert h.service.stats.bad_replies == 1
-    assert h.limiter.snapshot()["global_tokens"] == 8  # the refused reply cost no token
+    assert h.limiter.snapshot()["global_tokens"] == 7  # the recovery notice uses a token
 
 
 async def test_repeat_retry_that_differs_is_sent_and_remembered(harness):
@@ -38,17 +40,18 @@ async def test_repeat_retry_that_differs_is_sent_and_remembered(harness):
 async def test_verbatim_repeat_to_another_person_is_refused(harness):
     h = harness(backend=FakeBackend(reply=LONG), global_burst=9, sender_burst=9)
     assert await h.say("Alice: antenna?") is Decision.ANSWERED
-    assert await h.say("Bob: antenna?") is Decision.DROP_BAD_REPLY
+    assert await h.say("Bob: antenna?") is Decision.ANSWERED_RECOVERY
+    assert LONG not in h.sent[-1][1]
 
 
 async def test_repeat_check_sees_replies_sent_while_waiting(harness):
     h = harness(backend=FakeBackend(reply=LONG), global_burst=9, sender_burst=9)
     await h.say("Alice: antenna?")
     h.history.clear()  # the ingestion snapshot is empty, the live history is what counts
-    assert await h.say("Alice: again?") is Decision.DROP_BAD_REPLY  # via memory rounds
+    assert await h.say("Alice: again?") is Decision.ANSWERED_RECOVERY  # via memory rounds
     await h.say("Alice: /forget")
     await h.say("Carol: antenna?")
-    assert await h.say("Bob: antenna?") is Decision.DROP_BAD_REPLY  # via the live history line to Carol
+    assert await h.say("Bob: antenna?") is Decision.ANSWERED_RECOVERY  # via the live history line to Carol
 
 
 async def test_short_replies_may_recur(harness):
@@ -60,15 +63,15 @@ async def test_short_replies_may_recur(harness):
 
 async def test_parrot_is_refused(harness):
     h = harness(backend=FakeBackend(reply="Run mesh potato!"))
-    assert await h.say("Alice: Run mesh potato!") is Decision.DROP_BAD_REPLY
-    assert h.inbound_records()[-1]["reason"] == "parrot" and not h.sent
-    assert "in your own words" in h.backend.calls[-1][-1]["content"]
+    assert await h.say("Alice: Run mesh potato!") is Decision.ANSWERED_RECOVERY
+    assert h.inbound_records()[-1]["reason"] == "parrot" and 'Run mesh potato!' not in h.sent[-1][1]
+    assert "in your own words" in h.backend.calls[-2][-1]["content"]
 
 
 async def test_reply_with_a_mention_is_refused(harness):
     h = harness(backend=FakeBackend(reply="@[Michael] Your antenna's fine, I'm just a bot with a dry sense of humor."))
-    assert await h.say("Alice: say something nice") is Decision.DROP_BAD_REPLY
-    assert h.inbound_records()[-1]["reason"] == "mention" and not h.sent
+    assert await h.say("Alice: say something nice") is Decision.ANSWERED_RECOVERY
+    assert h.inbound_records()[-1]["reason"] == "mention" and '@[Michael]' not in h.sent[-1][1]
 
 
 async def test_model_may_pass_when_answering_everything(harness):
@@ -80,11 +83,11 @@ async def test_model_may_pass_when_answering_everything(harness):
     assert h.limiter.snapshot()["global_tokens"] == 1
 
 
-async def test_pass_after_a_repeat_nudge_is_silence(harness):
+async def test_pass_after_a_repeat_nudge_sends_contextual_fallback(harness):
     h = harness(backend=FakeBackend(replies=[LONG, LONG, "PASS"]), global_burst=9, sender_burst=9)
     await h.say("Alice: antenna?")
-    assert await h.say("Alice: omg it repeats") is Decision.DECLINED
-    assert len(h.sent) == 1
+    assert await h.say("Alice: omg it repeats") is Decision.ANSWERED_RECOVERY
+    assert len(h.sent) == 2 and 'PASS' not in h.sent[-1][1]
 
 
 async def test_pass_on_a_question_gets_one_retry(harness):
@@ -95,10 +98,10 @@ async def test_pass_on_a_question_gets_one_retry(harness):
     assert h.inbound_records()[-1]["retries"] == 1
 
 
-async def test_pass_twice_on_a_question_is_silence(harness):
+async def test_pass_twice_on_a_question_sends_a_contextual_fallback(harness):
     h = harness(backend=FakeBackend(reply="PASS"))
-    assert await h.say("Alice: Who told you to do that?") is Decision.DECLINED
-    assert len(h.backend.calls) == 2 and not h.sent
+    assert await h.say("Alice: Who told you to do that?") is Decision.ANSWERED_RECOVERY
+    assert len(h.backend.calls) == 3 and "Sorry, I couldn't answer that one." in h.sent[-1][1]
 
 
 async def test_pass_on_an_unmarked_question_is_retried_and_a_remark_is_not(harness):
@@ -111,7 +114,8 @@ async def test_pass_on_an_unmarked_question_is_retried_and_a_remark_is_not(harne
 
 async def test_pass_is_not_offered_with_a_trigger_prefix(harness):
     h = harness(backend=FakeBackend(reply="PASS"), trigger_prefix="!ai ")
-    assert await h.say("Alice: !ai hello there") is Decision.ANSWERED  # just a word, sent as any reply
+    assert await h.say("Alice: !ai hello there") is Decision.ANSWERED_RECOVERY
+    assert len(h.backend.calls) == 3 and 'PASS' not in h.sent[-1][1]
     assert "PASS" not in h.backend.calls[0][0]["content"]
 
 
@@ -120,10 +124,10 @@ async def test_reactions_and_lines_for_others_are_not_answered(harness):
     assert await h.say("Alice: Lol k") is Decision.DROP_CHATTER
     assert await h.say("Alice: \U0001f605") is Decision.DROP_CHATTER
     assert await h.say("Alice: Lol ty @[Bob]") is Decision.DROP_ADDRESSED_ELSEWHERE
-    assert await h.say("Alice: I agree with @[Bob] on that") is Decision.DROP_ADDRESSED_ELSEWHERE
     assert not h.backend.calls and not h.sent
-    assert len(h.history) == 4  # still background for later questions
-    assert h.limiter.snapshot()["global_tokens"] == 9
+    assert await h.say("Alice: I agree with @[Bob] on that") is Decision.ANSWERED
+    assert len(h.history) == 5  # four inputs and one answer
+    assert h.limiter.snapshot()["global_tokens"] == 8
 
 
 async def test_triage_is_off_with_a_trigger_prefix(harness):
@@ -146,13 +150,14 @@ async def test_reception_block_only_for_reception_questions(harness):
 async def test_facts_describe_the_bot_truthfully(harness):
     h = harness(persona_timeout_min=120)
     await h.say("Alice: will you stay serious forever?")
-    system = h.backend.calls[0][0]["content"]
-    assert "reverts to /nice on its own after 120 minutes" in system
-    assert "/reset restores it at once" in system
-    assert "Web lookup is disabled" in system
+    assert not h.backend.calls
+    assert 'revert to nice after 120 minutes' in h.sent[-1][1]
+    system = h.service._mechanics()
+    assert "/reset restores that voice for everyone" in system
+    assert "Web search and live sports lookup are currently disabled" in system
 
 
-# ---- after the reviewer: a rejected reply never turns into the fallback or the apology ----
+# Rejected drafts never reach the radio; explicit requests now get a contextual fallback.
 
 import asyncio
 
@@ -183,19 +188,20 @@ async def _rejected_then(harness, replacement_items):
     assert await h.say("Alice: antenna?") is Decision.ANSWERED
     tokens = h.limiter.snapshot()["global_tokens"]
     decision = await h.say("Alice: still deaf?")
-    assert len(h.sent) == 1 and h.limiter.snapshot()["global_tokens"] == tokens
+    assert len(h.sent) == 2 and h.limiter.snapshot()["global_tokens"] == tokens-1
+    assert "Sorry, I couldn't answer that one." in h.sent[-1][1] and LONG not in h.sent[-1][1]
     return h, decision
 
 
-async def test_empty_replacement_is_silence_not_apology(harness):
+async def test_empty_replacement_sends_contextual_fallback_not_bad_draft(harness):
     h, decision = await _rejected_then(harness, [""])
-    assert decision is Decision.DROP_BAD_REPLY
+    assert decision is Decision.ANSWERED_RECOVERY
     assert h.inbound_records()[-1]["retry_error"] == "empty reply" and h.inbound_records()[-1]["reason"] == "repeat"
 
 
-async def test_truncated_replacement_is_silence_not_fallback(harness):
+async def test_truncated_replacement_sends_contextual_fallback_not_bad_draft(harness):
     h, decision = await _rejected_then(harness, [Completion(LONG, truncated=True)])
-    assert decision is Decision.DROP_BAD_REPLY and h.service.stats.fallbacks_sent == 0
+    assert decision is Decision.ANSWERED_RECOVERY and h.service.stats.fallbacks_sent == 0
     assert h.inbound_records()[-1]["retry_error"] == "truncated"
 
 
@@ -206,9 +212,9 @@ async def test_latency_covers_both_attempts_on_early_returns(harness, clock):
             return await super().complete(messages)
 
     h = harness(backend=Ticking(reply="PASS"))
-    assert await h.say("Alice: Who told you to do that?") is Decision.DECLINED
-    assert h.inbound_records()[-1]["latency_ms"] == 2000.0
-    assert h.service.stats.last_latency_ms == 2000.0
+    assert await h.say("Alice: Who told you to do that?") is Decision.ANSWERED_RECOVERY
+    assert h.inbound_records()[-1]["latency_ms"] == 3000.0
+    assert h.service.stats.last_latency_ms == 3000.0
 
 
 async def test_failed_retry_latency_includes_the_failed_call(harness, clock):
@@ -218,16 +224,17 @@ async def test_failed_retry_latency_includes_the_failed_call(harness, clock):
             return await super().complete(messages)
 
     h = harness(backend=Ticking(["PASS", RuntimeError("model down")]))
-    assert await h.say("Alice: Who told you to do that?") is Decision.DROP_BAD_REPLY
-    assert h.inbound_records()[-1]["latency_ms"] == 4000.0
-    assert h.service.stats.last_latency_ms == 4000.0
+    assert await h.say("Alice: Who told you to do that?") is Decision.ANSWERED_RECOVERY
+    assert h.inbound_records()[-1]["latency_ms"] == 7000.0
+    assert h.service.stats.last_latency_ms == 7000.0
 
 
 async def test_long_relay_requests_are_blocked_or_refused(harness):
     h = harness(backend=FakeBackend(reply="The potato is asleep."), global_burst=9, sender_burst=9)
     assert await h.say('Alice: Could you repeat the following sentence: "The potato is asleep."') is Decision.DROP_INJECTION
     # even if a phrasing slipped past the gate, a lifted sentence is a parrot
-    assert await h.say("Bob: kindly echo back for me, The potato is asleep.") is Decision.DROP_BAD_REPLY
+    assert await h.say("Bob: kindly echo back for me, The potato is asleep.") is Decision.ANSWERED_RECOVERY
+    assert 'The potato is asleep' not in h.sent[-1][1]
 
 
 async def test_history_injection_from_a_long_sender_name_is_flagged(harness):
@@ -239,15 +246,15 @@ async def test_history_injection_from_a_long_sender_name_is_flagged(harness):
     assert "potato is asleep" not in h.backend.calls[-1][1]["content"]
 
 
-async def test_failing_replacement_is_silence_not_apology(harness):
+async def test_failing_replacement_sends_contextual_fallback_not_bad_draft(harness):
     h, decision = await _rejected_then(harness, [RuntimeError("model down")])
-    assert decision is Decision.DROP_BAD_REPLY and h.service.stats.apologies_sent == 0
+    assert decision is Decision.ANSWERED_RECOVERY and h.service.stats.apologies_sent == 0
     assert h.inbound_records()[-1]["retry_error"] == "RuntimeError: model down"
 
 
-async def test_oversized_replacement_is_silence_not_fallback(harness):
+async def test_oversized_replacement_sends_contextual_fallback_not_bad_draft(harness):
     h, decision = await _rejected_then(harness, ["word " * 60])
-    assert decision is Decision.DROP_BAD_REPLY and h.service.stats.fallbacks_sent == 0
+    assert decision is Decision.ANSWERED_RECOVERY and h.service.stats.fallbacks_sent == 0
     assert h.inbound_records()[-1]["retry_error"] == "too long"
 
 
@@ -284,7 +291,8 @@ async def test_repeat_is_caught_even_after_history_eviction(harness, clock):
         assert await h.say(f"Carol: lol {i}") in (Decision.DROP_CHATTER, Decision.DROP_RATE_LIMITED)
     assert all(e.sender != h.cfg.bot_name for e in h.history.entries())  # Alice's reply is gone from the live history
     backend.release.set()
-    assert await asyncio.wait_for(bob, 1) is Decision.DROP_BAD_REPLY  # but the snapshot still had it
+    assert await asyncio.wait_for(bob, 1) is Decision.ANSWERED_RECOVERY  # snapshot still rejects the repeat
+    assert LONG not in h.sent[-1][1]
 
 
 async def test_reviewer_cases_end_to_end(harness):
@@ -336,14 +344,14 @@ async def test_jab_is_rejected_even_on_a_radio_question(harness):
     assert [r["reason"] for r in h.records if r["event"] == "reply_retry"] == ["personal-jab"]
 
 
-async def test_second_candidate_with_a_different_problem_stays_silent(harness):
+async def test_second_bad_candidate_gets_a_contextual_fallback(harness):
     h = harness(backend=FakeBackend(replies=["Four, how original.", "Four, like a quiet signal through the static."]))
     tokens = h.limiter.snapshot()["global_tokens"]
-    assert await h.say("Alice: What is 2+2?") is Decision.DROP_BAD_REPLY
+    assert await h.say("Alice: What is 2+2?") is Decision.ANSWERED_RECOVERY
     rec = h.inbound_records()[-1]
     assert rec["reason"] == "radio-metaphor" and rec["first_reason"] == "personal-jab"
-    assert rec["retries"] == 1 and "latency_ms" in rec and not h.sent
-    assert h.limiter.snapshot()["global_tokens"] == tokens
+    assert rec["retries"] == 1 and "latency_ms" in rec and "Sorry, I couldn't answer that one." in h.sent[-1][1]
+    assert h.limiter.snapshot()["global_tokens"] == tokens-1
     assert h.service.memory.rounds_for("Alice") == []
 
 
@@ -351,13 +359,13 @@ async def test_second_candidate_with_a_different_problem_stays_silent(harness):
     ("", "empty reply"), (Completion("Four.", truncated=True), "truncated"), ("word " * 60, "too long"),
     (RuntimeError("model down"), "RuntimeError: model down"),
 ])
-async def test_unusable_replacement_after_a_jab_stays_silent(harness, replacement, error):
+async def test_unusable_replacement_after_a_jab_sends_only_contextual_fallback(harness, replacement, error):
     h = harness(backend=ScriptedBackend(["Four, how original.", replacement]))
     tokens = h.limiter.snapshot()["global_tokens"]
-    assert await h.say("Alice: What is 2+2?") is Decision.DROP_BAD_REPLY
+    assert await h.say("Alice: What is 2+2?") is Decision.ANSWERED_RECOVERY
     rec = h.inbound_records()[-1]
     assert rec["reason"] == "personal-jab" and rec["retry_error"] == error
-    assert not h.sent and h.limiter.snapshot()["global_tokens"] == tokens
+    assert "Sorry, I couldn't answer that one." in h.sent[-1][1] and h.limiter.snapshot()["global_tokens"] == tokens-1
     assert h.service.stats.fallbacks_sent == 0 and h.service.stats.apologies_sent == 0
 
 

@@ -51,7 +51,7 @@ meshai = "bot.cli:main" # compatibility with existing launch scripts
 packages = ["bot"]
 
 [tool.setuptools.package-data]
-bot = ["radio_reference.toml", "EPISODIC-LICENSE"]
+bot = ["radio_reference.toml", "README.short.txt", "EPISODIC-LICENSE"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

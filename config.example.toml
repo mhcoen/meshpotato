@@ -13,7 +13,7 @@ bot_name = "Mesh Potato"               # MUST equal the radio's node name (loop 
 trigger_prefix = ""               # "" answers every message except reactions and lines meant for someone else; "!ai " for shared channels
 # Reply size is calculated automatically from the UTF-8 length of bot_name.
 prompt_max_chars = 160            # longer prompts are dropped (the radio delivers at most 160 anyway)
-reply_delay_s = 8.0               # hold the reply this long (jittered) after the question so it misses the repeaters
+reply_delay_s = 2.0               # hold the reply this long (jittered) after the question so it misses the repeaters
 shorten_retries = 2               # times a too-long reply goes back to the model with the exact limit
 too_long_reply = "That answer will not fit in one message, ask me something narrower."   # sent if it still will not fit
 apology = "Sorry, I couldn't answer that one." # fixed outgoing lines must already be printable ASCII
@@ -37,6 +37,10 @@ model_timeout_s = 25.0            # total search and generation budget, includin
 [web]
 web_enabled = true              # automatic current-information lookup and /web; sends the question to public search engines
 web_location = "Madison, Wisconsin"  # used only for local weather/hours questions without a location
+
+[traffic]
+traffic_enabled = true          # prefetch Madison Beltline travel times; no API key or model call
+traffic_refresh_s = 300.0        # every five minutes; source measurements expire after ten minutes
 
 [fortune]
 fortune_enabled = true            # post a daily fortune, unprompted

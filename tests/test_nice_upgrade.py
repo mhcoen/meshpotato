@@ -61,8 +61,8 @@ async def test_real_retort_is_retried_and_never_transmitted(harness,request_funn
 
 async def test_repeated_retort_is_dropped(harness):
     h=harness(backend=FakeBackend("I'm functioning, unlike your internet connection."))
-    assert await h.say('Michael: How are you doing?') is Decision.DROP_BAD_REPLY
-    assert not h.sent
+    assert await h.say('Michael: How are you doing?') is Decision.ANSWERED_RECOVERY
+    assert 'internet connection' not in h.sent[-1][1]
 
 
 async def test_final_send_boundary_rejects_jab(harness):
