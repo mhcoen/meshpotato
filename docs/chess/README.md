@@ -1,12 +1,12 @@
-# Mesh Potato Chess
+# #chess: Mesh Potato Chess
 
 Mesh Potato Chess runs saved games in **#chess** using Stockfish.
 
-[Main README](../../README.md) · [Traffic README](../../bot/traffic/README.md)
+[#ai and main README](../../README.md) · [#traffic README](../../bot/traffic/README.md)
 
 ## Setup
 
-Chess is optional and disabled by default. Install the Python extra and a
+The #chess channel is optional and disabled by default. Install the Python extra and a
 [Stockfish executable](https://stockfishchess.org/download/):
 
 ```bash
@@ -17,7 +17,7 @@ Run installation commands from the repository root. On macOS with Homebrew,
 install the engine with `brew install stockfish`. Widget uses
 `/opt/homebrew/bin/stockfish`; set the path appropriate for your computer.
 
-Create a channel named **chess** or **#chess** on the companion radio and the
+Create the public channel **#chess** on the companion radio and the
 players' radios. Set its actual slot in `config.toml`, for example:
 
 ```toml
@@ -28,13 +28,13 @@ chess_think_s = 0.2
 chess_max_games = 1000
 ```
 
-Slot 3 is only an example. Widget uses chess slot 3 and traffic slot 2. It is automatically added to the served slots; it
-does not need to appear in `additional_channels`. Keep the AI channel in its
+Slot 3 is only an example. Widget uses #chess in slot 3 and #traffic in slot 2. It is automatically added to the served slots; it
+does not need to appear in `additional_channels`. Keep #ai in its
 existing slot and run the same **single bot process**. Startup verifies the
 channel name, saved-state ownership and engine before enabling any replies.
 Mesh Potato Chess has its own version, initially **1.0**, independent of
 Mesh Potato Traffic and the host program. `about` or `version` shows it.
-Chess does not call Ollama or web search and sends no usage tips or fortunes. It shares the normal radio queue and rate limits.
+The #chess service does not call Ollama or web search and sends no usage tips or fortunes. It shares the normal radio queue and rate limits.
 
 ## Playing
 
@@ -113,7 +113,7 @@ pages: a reply ending in `moves 2` tells you how to request the next page.
 play a move or call the engine. They also work after the game ends and after a
 restart. Starting a new game replaces the history shown by these commands.
 
-## If a chess reply does not arrive
+## If a #chess reply does not arrive
 
 A missing reply does not tell you whether your move arrived. The bot may still
 be waiting for airtime, or it may have saved your move and its response while
@@ -148,7 +148,7 @@ request can restart the engine. Back up the channel's state file with the others
 
 ## First launch and restarts
 
-The channel introduces itself as Mesh Potato Chess v1.0 on its first launch.
+The #chess channel introduces itself as Mesh Potato Chess v1.0 on its first launch.
 With the default `announce_once = true`, the saved welcome attempt keeps later
 restarts quiet. Leave off `--no-announce` when starting it for the first time if
 you want that introduction. `announce_startup = false` suppresses welcomes on

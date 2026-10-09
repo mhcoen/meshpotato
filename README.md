@@ -14,9 +14,9 @@ can reach the model or the radio.
 It is a small Python package with no web interface or database server.
 A local SQLite file keeps recent conversations across restarts.
 
-This README covers the AI bot and shared program. Each additional service has
-its own instructions: [Chess README](docs/chess/README.md) and
-[Traffic README](bot/traffic/README.md).
+This README covers the #ai bot and shared program. Each additional service has
+its own instructions: [#chess README](docs/chess/README.md) and
+[#traffic README](bot/traffic/README.md).
 
 A live instance runs on the `#ai` channel of the MeshCore mesh in
 southern Wisconsin, centered on Madison. If you are on that mesh, add `#ai`
@@ -45,9 +45,9 @@ Narrow terminals use tabs:
 - Per-person memory of recent exchanges, preserved across restarts so follow-up questions make sense.
   Overlapping exchanges appear only once in model context; `/forget` clears
   your personal memory, not the shared channel history
-- Optional [chess channel](docs/chess/README.md), with Stockfish, saved games per player,
+- Optional [#chess channel](docs/chess/README.md), with Stockfish, saved games per player,
   adjustable difficulty, legal-move checks, hints, draw handling and restart recovery.
-- Optional [traffic channel](bot/traffic/README.md) for important Wisconsin 511
+- Optional [#traffic channel](bot/traffic/README.md) for important Wisconsin 511
   reports, with help, current alert lists, requested travel times and saved
   announcement history across restarts.
 - A bundled [abbreviated README](bot/README.short.txt) in every model request,
@@ -108,7 +108,7 @@ A configured custom command prefix works too. With the default presets:
 | `about`, `!about` or `/about` | Shows version, configured model and host/radio arrangement, plus the GitHub README link when the complete reply fits |
 | `!about source` or `/about source` | Gives the source repository link |
 | `!weather` or `/weather` | Gets the daily weather; `!wx` and `/wx` also work, with an optional location |
-| `!traffic` or `/traffic` | Directs users to #traffic when configured; otherwise uses the AI traffic lookup described below |
+| `!traffic` or `/traffic` | Directs users to #traffic when configured; otherwise uses the traffic lookup in #ai described below |
 | `/help web` | Automatic searches and `/web` usage; the bot handles the internet connection and search |
 | `/help voices` | Lists the configured voice commands, without descriptions |
 | `/help fun` | Dice and Magic 8 Ball examples, plus daily fortunes when enabled |
@@ -139,7 +139,7 @@ and help. These are reviewed examples of what to ask; conversational answers
 still come from the model or live-data handlers. Morning tips rotate through
 weather, sports and traffic; evening tips cover the broader set of uses. If web
 lookup is disabled, both slots use the non-web examples. When #traffic is
-configured, traffic question tips are omitted from AI and the introduction tip
+configured, traffic question tips are omitted from #ai and the introduction tip
 points to #traffic instead.
 
 Defaults are **10:00 a.m. and 6:00 p.m. in the host computer's local timezone**,
@@ -303,20 +303,20 @@ For Madison Beltline and I-90 traffic, the bot refreshes the public
 [Wisconsin 511 travel-time table](https://511wi.gov/list/traveltimes) at startup
 and every five minutes in the background. No API key is needed for these travel
 times. When the dedicated #traffic channel is enabled, all traffic answers and
-announcements go there; AI channels direct traffic questions to #traffic. AI help
-names that destination, and AI welcomes and usage tips stop inviting traffic
-questions on the AI channel. Traffic broadcasts compare derived incident facts,
+announcements go there; the #ai channel directs traffic questions to #traffic. Help in #ai
+names that destination, and welcomes and usage tips in #ai stop inviting traffic
+questions on #ai. Traffic broadcasts compare derived incident facts,
 so cosmetic source edits stay quiet; repeat controls and receipt migration are
 documented in the traffic README.
 Setup, help commands, current alert browsing and announcement rules are in the
-[traffic README alongside its code](bot/traffic/README.md). Questions such as
+[#traffic README alongside its code](bot/traffic/README.md). Questions such as
 "What is the traffic on the Beltline?" and "Beltline eastbound delays?" use a
 prepared report for the University Avenue–I-39/90 corridor, without a foreground
-search or model call. In the AI channel, these requests redirect when #traffic
-is configured. The examples and general web behavior below describe AI traffic
-lookup when the dedicated channel is disabled. #traffic uses the same corridor
+search or model call. In #ai, these requests redirect when #traffic
+is configured. The examples and general web behavior below describe traffic
+lookup in #ai when the dedicated channel is disabled. #traffic uses the same corridor
 cache without source labels and does not use general web search for other roads.
-`/web Beltline traffic?` also uses the AI cache in that standalone setup. Example with
+`/web Beltline traffic?` also uses the cache in #ai in that standalone setup. Example with
 **illustrative measurements**:
 
 > Beltline: Eastbound 22 min, 5 min delay (2 min ago). Westbound 17 min, no delay (2 min ago). Source: 511.
@@ -366,7 +366,7 @@ continue through general web lookup. Bare Beltline and I-90 requests use this ca
 when `web_location` is Madison; explicitly naming Madison works from other defaults.
 Set `traffic_enabled = false` to disable prefetching, or change
 `traffic_refresh_s` (default `300`, allowed `60`–`600`). Disabling `web_enabled`
-also disables prefetching in an AI-only setup. A configured #traffic channel
+also disables prefetching when only #ai is configured. A configured #traffic channel
 can still run its cache with web search disabled. `traffic_enabled = false`
 disables the travel time cache, not authenticated incident alerts. This public
 table is a website interface,
@@ -572,7 +572,7 @@ and `pip` work the same way; pip equivalents are given where they differ.
    libraries and confusables, which supplies the Unicode look-alike table used
    by the injection detector. The development extra also installs tests and the
    chess Python library. The Stockfish executable is installed separately; see
-   the [Chess README](docs/chess/README.md).
+   the [#chess README](docs/chess/README.md).
 
 4. Check that the command exists:
 
@@ -703,7 +703,7 @@ Do this once.
    | bandwidth | `set_radio`, kHz | 62.5 hears weaker signals than 125 or 250 at the cost of airtime; the USA/Canada preset uses 62.5. |
    | spreading factor | `set_radio`, 7 to 12 | Higher is longer range, lower data rate, and roughly double the airtime per step; the USA/Canada preset uses 7. |
    | coding rate | `set_radio`, 5 to 8 | The denominator of 4/5 to 4/8. 4/5 has the least error correction and the most throughput; 4/8 the reverse. The USA/Canada preset uses 5. |
-   | channel | `set_channel`, slot 0 to 7 | Slot 0 is Public. A name starting with `#` derives its key from the name so others can join by name; any other name needs a shared 16 byte secret. |
+   | channel | `set_channel`, slot 0 to 7 | Slot 0 is the built-in default. A name starting with `#` derives its key from the name so others can join by name; any other name needs a shared 16 byte secret. |
 
    Match the local mesh's frequency, bandwidth, and spreading factor, and
    start with its recommended coding rate. Node names and transmit power
@@ -738,7 +738,7 @@ file. `config.toml` is ignored by git.
 ### Multiple channels on one radio
 
 Leaving `additional_channels = []` and both dedicated channel indices at `-1`
-preserves the single AI channel setup. To serve more channels later, create them on
+preserves the single #ai channel setup. To serve more channels later, create them on
 the companion radio and add their slot numbers under `[radio]`, for example:
 
 ```toml
@@ -763,18 +763,18 @@ Replies from all channels share one bounded FIFO queue, one model-generation tur
 at a time, global and per-sender rate limits, and one radio load monitor. Adding
 channels does not multiply the airtime allowance; busy channels can increase the
 wait elsewhere. The traffic cache is refreshed once and shared across channels.
-AI introductions, scheduled usage tips, and fortunes stay on `channel_idx`.
-Chess and traffic each have their own first launch introduction. They never
-send AI usage tips or fortunes.
+Introductions, scheduled usage tips and fortunes for #ai stay on `channel_idx`.
+The #chess and #traffic channels each have their own first launch introduction.
+They never send usage tips or fortunes from #ai.
 
 The primary channel keeps the existing `state_db` file. Additional channels use
 neighboring files such as `meshpotato.channel-2.sqlite3`; back up these files too.
 Reordering `additional_channels` does not change their storage. Changing a slot's
 channel identity requires a fresh state file, as it does for a single channel.
-An empty `state_db` disables persistence for AI channels; chess and traffic require a file.
+An empty `state_db` disables persistence for #ai; #chess and #traffic require a file.
 
 The terminal monitor creates a message panel for every configured channel,
-including **AI**, **Chess** and **Traffic**. Wide terminals show the panels side by
+including **#ai**, **#chess** and **#traffic**. Wide terminals show the panels side by
 side, allowing at least 48 columns per channel. Narrower terminals show channel
 tabs. Click a tab or press **n** to switch channels and their statistics. Messages
 received in a hidden tab are retained; resizing rewraps the retained history.
@@ -784,7 +784,7 @@ panels automatically.
 Radio status, the shared reply queue and airtime limits stay above the panels.
 A shared event and error log remains visible below them, including errors from
 hidden channels. Compact terminals use a shorter status summary. Traffic
-broadcasts appear in the traffic panel along with its questions and replies.
+broadcasts appear in the #traffic panel along with its questions and replies.
 JSON events continue to carry `channel_idx`. Environment configuration also works:
 `MESHPOTATO_ADDITIONAL_CHANNELS=2,3` (empty means none).
 
@@ -849,15 +849,15 @@ This controls your user's processes on this computer, not bots on other hosts or
 under other accounts. Disable any external service that automatically restarts
 the bot if you want it to stay stopped.
 
-On first launch, the primary AI service and enabled chess and traffic services
+On first launch, the primary #ai service and enabled #chess and #traffic services
 each introduce their name, version, capabilities and help in one message.
-For example, the AI introduction is:
+For example, the introduction in #ai is:
 
 ```text
 Mesh Potato v2.0.1: Ask about weather, sports, traffic, radio, or a poem. Try /help for examples.
 ```
 
-Chess and traffic introduce themselves as **Mesh Potato Chess v1.0** and
+The #chess and #traffic services introduce themselves as **Mesh Potato Chess v1.0** and
 **Mesh Potato Traffic v1.0**. Their versions advance independently of each other
 and the AI package version. Their `about` and `version` replies show these versions.
 
@@ -869,10 +869,10 @@ off the first launch when you want all three introductions. They share the radio
 rate limit, so they arrive separately. `announce_startup = false` suppresses all
 welcomes; `announce_once = false` restores an introduction at every start.
 Without a persistent database, the welcome cannot be remembered across restarts.
-Traffic alert receipts are separate, so new serious alerts still broadcast.
+Alert receipts for #traffic are separate, so new serious alerts still broadcast.
 
-The AI example above assumes no dedicated traffic channel. When #traffic is
-enabled, the AI welcome omits traffic from its list of capabilities. Additional
+The #ai example above assumes #traffic is not configured. When #traffic is
+enabled, the welcome in #ai omits traffic from its list of capabilities. Additional
 generic AI channels do not send their own startup welcome.
 
 The package version is also available locally with `meshpotato --version`.

@@ -1,4 +1,4 @@
-# Mesh Potato Traffic
+# #traffic: Mesh Potato Traffic
 
 Mesh Potato serves travel time questions and important Wisconsin 511 reports in
 **#traffic**. It uses the 511 feeds directly. A language model does not decide
@@ -8,7 +8,7 @@ Automatic announcements cover serious incidents, significant road closures and
 dangerous road conditions. Routine congestion and ordinary lane restrictions
 do not generate broadcasts. Travel times are available when someone asks.
 
-[Main README](../../README.md) · [Chess README](../../docs/chess/README.md)
+[#ai and main README](../../README.md) · [#chess README](../../docs/chess/README.md)
 
 ## Setup
 
@@ -26,10 +26,10 @@ traffic_refresh_s = 300.0
 ```
 
 The slot is automatically served and does not also need to be listed in
-`additional_channels`. The name must be `traffic` or `#traffic`. It must be a
-different slot and channel key from AI and chess. Leaving `traffic_channel_idx`
-at its default of `-1` disables the dedicated traffic channel and preserves the
-existing AI traffic answers.
+`additional_channels`. Use the public channel name `#traffic`. It must be a
+different slot and channel key from #ai and #chess. Leaving `traffic_channel_idx`
+at its default of `-1` disables #traffic and preserves the
+existing traffic answers in #ai.
 
 The API key is read only from `WI511_API_KEY` in the process environment. The
 legacy environment name `511_API_KEY` is accepted too, but normal shell
@@ -59,7 +59,7 @@ An already running bot or tmux session does not acquire new environment variable
 automatically. Source the file in the shell that launches the bot. Services that
 do not run an interactive shell need their own environment setup.
 
-Run one bot process for AI, chess and traffic. Channel setup, the API key's
+Run one bot process for #ai, #chess and #traffic. Channel setup, the API key's
 presence and saved state are checked before channel handlers start. An API
 outage is retried at the next poll. Help remains available; automatic alerts
 require a successful feed snapshot no older than ten minutes. No radio channel
@@ -100,9 +100,9 @@ again at the first report. No matching significant reports does not mean every
 road is clear. If the feed is stale, the bot explains that it cannot verify the
 current alerts. It does not present an old alert list as current.
 
-When this channel is enabled, road traffic questions in AI channels direct
+When this channel is enabled, road traffic questions in #ai direct
 people to #traffic. Travel time answers and automatic traffic announcements
-remain in #traffic. Questions about radio or network traffic still belong in AI.
+remain in #traffic. Questions about radio or network traffic still belong in #ai.
 Other roads do not have a general live travel time lookup; the bot gives a
 coverage explanation or asks for a street rather than inventing a report.
 
@@ -172,12 +172,12 @@ their source times. Ordinary travel time changes never cause announcements.
 All channels share the same radio allowance and congestion controls. Traffic
 announcements yield to user requests and attempt at most one post per five
 second scheduler tick. The radio limiter can impose a longer wait. The first
-launch welcome is separate from alert broadcasts. AI personality changes, usage tips and fortunes are not
+launch welcome is separate from alert broadcasts. Personality changes, usage tips and fortunes from #ai are not
 posted to #traffic.
 
 ## Storage and failures
 
-Announcement receipts are in the traffic channel's SQLite database, for example
+Announcement receipts are in the #traffic channel's SQLite database, for example
 `meshpotato.channel-2.sqlite3`. Back it up with the other channel databases.
 Changing a slot's channel identity requires a separate database. A persistent
 database is required; disabling persistence would repeat alerts on every restart.
@@ -192,8 +192,7 @@ The history is bounded to 10,000 distinct report identifiers. It is not silently
 evicted to make room for new reports. Corrupt or full history stops announcements
 and logs an error; existing receipts are preserved for operator recovery.
 
-Mesh Potato Traffic starts at version **1.0**, independent of chess and the AI
-package. Say `about` or `version` to see it. Its first launch welcome explains
+Mesh Potato Traffic starts at version **1.0**, independent of the services in #chess and #ai. Say `about` or `version` to see it. Its first launch welcome explains
 alerts and travel times; a saved receipt keeps routine restarts quiet.
 
 The `--no-announce` switch suppresses all channel welcomes. It does not
