@@ -7,6 +7,7 @@
 [radio]
 port = "/dev/cu.usbserial-0001"   # required; the MeshCore USB companion
 channel_idx = 1                   # must exist on the radio; the bot refuses to start otherwise
+additional_channels = []         # optional extra radio slots, e.g. [2, 3]; each runs an isolated AI chat
 
 [bot]
 announce_startup = true           # false skips the opening channel message; --no-announce overrides this
@@ -40,8 +41,8 @@ web_enabled = true              # automatic current-information lookup and /web;
 web_location = "Madison, Wisconsin"  # used only for local weather/hours questions without a location
 
 [traffic]
-traffic_enabled = true          # prefetch Madison Beltline travel times; no API key or model call
-traffic_refresh_s = 300.0        # every five minutes; source measurements expire after ten minutes
+traffic_enabled = true          # prefetch Madison Beltline and I-90 (Beltline to I-94); no API key or model call
+traffic_refresh_s = 300.0        # every five minutes; reports older than ten minutes show source times/dates
 
 [tips]
 tips_enabled = true             # two one-message examples daily; questions take priority

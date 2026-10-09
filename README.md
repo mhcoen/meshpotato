@@ -5,7 +5,7 @@
 [![Tests](https://img.shields.io/badge/tests-pytest-green.svg)](#development)
 
 A chat bot for a [MeshCore](https://meshcore.co.uk) channel. Mesh Potato runs on a
-computer with a MeshCore companion radio on USB, listens on one channel,
+computer with a MeshCore companion radio on USB, listens on configured channels,
 answers questions using a language model running on the same computer, and
 posts a one sentence reply back to the channel as `@[sender] answer`. Every
 message and every reply passes a built-in prompt injection detector before it
@@ -31,7 +31,7 @@ channel utilisation, and every message with the bot's decision on it
 
 ## Features
 
-- Answers questions on one MeshCore channel, skipping bare reactions and
+- Answers questions on one or more MeshCore channels, skipping bare reactions and
   lines addressed to someone else, and staying out of conversations between
   other people. On a shared channel, an optional trigger prefix such as `!ai`
   limits it to messages meant for it
@@ -95,7 +95,7 @@ A configured custom command prefix works too. With the default presets:
 | `about`, `!about` or `/about` | Shows version, configured model and host/radio arrangement, plus the GitHub README link when the complete reply fits |
 | `!about source` or `/about source` | Gives the source repository link |
 | `!weather` or `/weather` | Gets the daily weather; `!wx` and `/wx` also work, with an optional location |
-| `!traffic` or `/traffic` | Requests traffic; Beltline questions use the prepared cache when enabled |
+| `!traffic` or `/traffic` | Requests traffic; Madison Beltline and I-90 questions use prepared reports; broad requests ask for a road |
 | `/help web` | Automatic searches and `/web` usage; the bot handles the internet connection and search |
 | `/help voices` | Lists the configured voice commands, without descriptions |
 | `/help fun` | Dice and Magic 8 Ball examples, plus daily fortunes when enabled |
@@ -284,7 +284,7 @@ timestamps, and both forecast dates; retained weather expires after at most 15
 minutes and at local midnight. Specific questions outside a daily summary still
 use general web lookup. Weather provenance is recorded in `weather_lookup` logs.
 
-For Madison Beltline traffic, the bot refreshes the public
+For Madison Beltline and I-90 traffic, the bot refreshes the public
 [Wisconsin 511 travel-time table](https://511wi.gov/list/traveltimes) at startup
 and every five minutes in the background. No API key is needed. Questions such as
 "What is the traffic on the Beltline?" and "Beltline eastbound delays?" use a
@@ -293,6 +293,32 @@ search or model call. `/web Beltline traffic?` also uses this cache. Example wit
 **illustrative measurements**:
 
 > Beltline: Eastbound 22 min, 5 min delay (2 min ago). Westbound 17 min, no delay (2 min ago). Source: 511.
+
+"Traffic on I90", "I-90 northbound traffic", and `/traffic I-39/90` use measured
+travel times **between the Beltline and I-94 (Badger Interchange)**. This is a
+specific Madison corridor, not a report for the entire interstate. For example,
+with **illustrative measurements**:
+
+> I-90 Beltline to I-94: Northbound 4 min, no delay (2 min ago). Southbound 8 min, 5 min delay (2 min ago). Source: 511.
+
+If both dated directions do not fit one radio packet, the bot asks for northbound
+or southbound. Explicitly named destinations outside this corridor, other roads,
+incidents and forecasts use general lookup, never these corridor measurements.
+The two table searches refresh together; a failed search preserves its previous
+measurements while the other can still update.
+
+"Traffic downtown" now answers:
+
+> Downtown Madison: which street and direction? I can check reports, but have no downtown-wide live traffic feed.
+
+A road-name follow-up such as "John Nolen Drive northbound" within two minutes
+becomes a traffic lookup for that sender on that channel. `/traffic John Nolen
+Drive northbound` works directly. If the lookup cannot verify conditions, it says:
+
+> I couldn't verify traffic for that road. Try a road, direction and nearby exit, or check 511wi.gov.
+
+This distinguishes an unverified road from a temporary failure of a supported
+cached report. A broad "How's traffic?" asks which road and direction first.
 
 Travel times and additional delays are in minutes. Each direction shows its
 own source update age or time; clock times are Central time. Only source measurements and successful
@@ -308,7 +334,7 @@ direction. The unavailable notice is reserved for missing or invalid data, or
 a report that cannot fit in the radio message. No traffic reports are broadcast
 unless someone asks, and normal reply spacing and congestion limits still apply.
 Specific exits, incidents, closures, other roads, and future traffic questions
-continue through general web lookup. Bare "Beltline" requests use this cache only
+continue through general web lookup. Bare Beltline and I-90 requests use this cache only
 when `web_location` is Madison; explicitly naming Madison works from other defaults.
 Set `traffic_enabled = false` to disable prefetching, or change
 `traffic_refresh_s` (default `300`, allowed `60`–`600`). Disabling `web_enabled`
@@ -660,12 +686,13 @@ Do this once.
 cp config.example.toml config.toml
 ```
 
-Three settings must match your setup:
+Set these to match your setup; extra channels are optional:
 
 | Key | Set it to |
 |---|---|
 | `port` | the serial device from the radio steps |
 | `channel_idx` | the slot the channel was created in (1 in the script) |
+| `additional_channels` | optional extra radio slots; `[]` keeps the single-channel setup |
 | `bot_name` | the node name (Mesh Potato in the script) |
 
 Everything else has a working default; the full list is in the
@@ -673,6 +700,46 @@ Everything else has a working default; the full list is in the
 set as an environment variable named `MESHPOTATO_` plus the key in upper case,
 for example `MESHPOTATO_PORT=/dev/ttyUSB0`, and the environment wins over the
 file. `config.toml` is ignored by git.
+
+### Multiple channels on one radio
+
+No channel choices are required now: leaving `additional_channels = []` preserves
+the existing single-channel setup. To serve more channels later, create them on
+the companion radio and add their slot numbers under `[radio]`, for example:
+
+```toml
+[radio]
+port = "/dev/your-radio"
+channel_idx = 1
+additional_channels = [2, 3]
+```
+
+These are example slot numbers, not required names. All configured slots currently
+run the AI chat handler. Chess and backgammon game management are future additions;
+selecting a channel does not install a game. Unlisted slots receive no bot replies.
+The bot checks every configured slot and its saved state before enabling replies,
+and rejects empty slots and duplicate channel keys. It does not create or rename
+radio channels. All logical channels use the radio's existing RF settings.
+
+Run **one process**, using the same command as before. Channels have separate
+conversation history, personal memory, sports follow-ups, and voice settings.
+`/forget` and voice changes affect only the channel where they are requested.
+Replies from all channels share one bounded FIFO queue, one model-generation turn
+at a time, global and per-sender rate limits, and one radio load monitor. Adding
+channels does not multiply the airtime allowance; busy channels can increase the
+wait elsewhere. The traffic cache is refreshed once and shared across channels.
+Startup introductions, scheduled usage tips, and fortunes stay on `channel_idx`.
+
+The primary channel keeps the existing `state_db` file. Additional channels use
+neighboring files such as `meshpotato.channel-2.sqlite3`; back up these files too.
+Reordering `additional_channels` does not change their storage. Changing a slot's
+channel identity requires a fresh state file, as it does for a single channel.
+An empty `state_db` disables persistence for all channels.
+
+In the terminal monitor, press **n** to cycle through channel statistics. The log
+shows events from every served channel with their slot number, and JSON events
+carry `channel_idx`. Environment configuration also works:
+`MESHPOTATO_ADDITIONAL_CHANNELS=2,3` (empty means none).
 
 ## Usage
 

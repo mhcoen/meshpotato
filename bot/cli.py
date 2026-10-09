@@ -24,7 +24,8 @@ from bot.config import Config, ConfigError, load_config
 from bot.debuglog import debug_handler
 from bot.guard import InjectionGate
 from bot.history import History
-from bot.jsonlog import EventLog
+from bot.jsonlog import ChannelLog, EventLog
+from bot.channels import MultiChannelService
 from bot.knowledge import Reference, checked_references
 from bot.logcheck import check_log
 from bot.ratelimit import RateLimiter
@@ -59,7 +60,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def build_service(cfg: Config, meshcore, log: EventLog, references: tuple[Reference, ...] | None = None) -> BotService:
+def build_service(cfg: Config, meshcore, log: EventLog, references: tuple[Reference, ...] | None = None) -> BotService | MultiChannelService:
     if references is None:
         references = checked_references(InjectionGate(cfg.injection_threshold))
     limiter = RateLimiter(
@@ -81,24 +82,25 @@ def build_service(cfg: Config, meshcore, log: EventLog, references: tuple[Refere
             tx_budget=cfg.tx_duty_budget,
         )
     service = BotService(
-        cfg=cfg,
+        cfg=cfg.for_channel(cfg.channel_idx),
         meshcore=meshcore,
         backend=make_backend(cfg),
         gate=InjectionGate(threshold=cfg.injection_threshold),
         limiter=limiter,
         history=History(cfg.history_size),
-        log=log,
+        log=ChannelLog(log, cfg.channel_idx) if cfg.additional_channels else log,
         monitor=monitor,
         references=references,
+        managed_radio=bool(cfg.additional_channels),
     )
     if cfg.web_enabled and cfg.traffic_enabled:
         service.traffic = TrafficCache(log, refresh_s=cfg.traffic_refresh_s)
     if cfg.tips_enabled:
-        service.tips = UsageTipScheduler(service, log)
+        service.tips = UsageTipScheduler(service, service.log)
     if cfg.fortune_enabled:
         service.fortune = FortuneScheduler(
             service=service,
-            log=log,
+            log=service.log,
             hhmm=cfg.fortune_time,
             jitter_min=cfg.fortune_jitter_min,
             cutoff_min=cfg.fortune_cutoff_min,
@@ -106,7 +108,21 @@ def build_service(cfg: Config, meshcore, log: EventLog, references: tuple[Refere
             prompt=cfg.fortune_prompt,
             fallback=cfg.fortune_fallback,
         )
-    return service
+    if not cfg.additional_channels:
+        return service
+    services = {cfg.channel_idx: service}
+    for idx in cfg.additional_channels:
+        channel_cfg = cfg.for_channel(idx)
+        child = BotService(
+            cfg=channel_cfg, meshcore=meshcore, backend=make_backend(channel_cfg),
+            gate=InjectionGate(threshold=cfg.injection_threshold), limiter=limiter,
+            history=History(cfg.history_size), log=ChannelLog(log, idx), monitor=monitor,
+            references=references, reply_queue=service.reply_queue,
+            managed_radio=True, manage_shared_workers=False,
+        )
+        child.traffic = service.traffic
+        services[idx] = child
+    return MultiChannelService(cfg, meshcore, services, log)
 
 
 class ConnectError(RuntimeError):
@@ -232,7 +248,7 @@ async def _run(cfg: Config, headless: bool, log: EventLog, references: tuple[Ref
             await disconnect(meshcore, log=log)
 
 
-async def _run_connected(cfg: Config, service: BotService, headless: bool, log: EventLog) -> int:
+async def _run_connected(cfg: Config, service: BotService | MultiChannelService, headless: bool, log: EventLog) -> int:
     loop = asyncio.get_running_loop()
 
     if headless:
@@ -271,6 +287,8 @@ async def _run_connected(cfg: Config, service: BotService, headless: bool, log: 
         limiter=service.limiter,
         monitor=service.monitor,
         fortune=service.fortune,
+        channel_stats=getattr(service, "channel_stats", None),
+        reply_queue=service.reply_queue,
         subscribe_log=log.subscribe,
         run_service=run_service,
         stop_service=service.stop,

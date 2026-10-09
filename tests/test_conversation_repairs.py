@@ -86,7 +86,7 @@ def test_missing_half_of_combined_answer_is_explicit_not_silently_omitted():
     assert sports_answer([standing(), stale], 'Brewers record and next game?', NOW, 125)[0] == answer
 
 
-@pytest.mark.parametrize('query', ['Wx', 'wx', 'How’s the traffic?', 'How is the traffic on the Madison Beltline?'])
+@pytest.mark.parametrize('query', ['Wx', 'wx', 'How is the traffic on the Madison Beltline?'])
 async def test_current_information_never_comes_from_a_model_guess(harness, query):
     h = harness(web_enabled=True, backend=FakeBackend('Traffic is light right now.'))
     h.service.web.search = AsyncMock(return_value=[])

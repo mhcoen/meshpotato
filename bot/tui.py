@@ -27,6 +27,7 @@ class MeshPotatoApp(App[None]):
     BINDINGS = [
         Binding("q", "quit", "Quit"),
         Binding("ctrl+c", "quit", "Quit", show=False),
+        Binding("n", "next_channel", "Next channel"),
     ]
 
     def __init__(
@@ -39,6 +40,8 @@ class MeshPotatoApp(App[None]):
         stop_service: Callable[[], Awaitable[None]],
         monitor: Any = None,
         fortune: Any = None,
+        channel_stats: dict[int, Stats] | None = None,
+        reply_queue: Any = None,
     ):
         super().__init__()
         self._cfg = cfg
@@ -46,6 +49,8 @@ class MeshPotatoApp(App[None]):
         self._limiter = limiter
         self._monitor = monitor
         self._fortune = fortune
+        self._channel_stats = channel_stats or {cfg.channel_idx: stats}
+        self._reply_queue = reply_queue
         self._subscribe_log = subscribe_log
         self._run_service = run_service
         self._stop_service = stop_service
@@ -82,13 +87,20 @@ class MeshPotatoApp(App[None]):
 
     # ------------------------------------------------------------------ rendering
 
+    def action_next_channel(self) -> None:
+        slots = list(self._channel_stats)
+        current = next((i for i, idx in enumerate(slots) if self._channel_stats[idx] is self._stats), 0)
+        self._stats = self._channel_stats[slots[(current + 1) % len(slots)]]
+        self._refresh_panels()
+
     def _refresh_panels(self) -> None:
         s = self._stats
         cfg = self._cfg
         latency = f"{s.last_latency_ms:.0f} ms" if s.last_latency_ms is not None else "n/a"
         status = (
             f"[b]Radio[/b]   {'CONNECTED' if s.connected else 'DISCONNECTED'}  {cfg.port}\n"
-            f"[b]Channel[/b] {s.channel_name or '?'} (idx {cfg.channel_idx})\n"
+            f"[b]Channel[/b] {s.channel_name or '?'} (idx {s.channel_idx})"
+            f"{'  [n: next of ' + str(len(self._channel_stats)) + ']' if len(self._channel_stats) > 1 else ''}\n"
             f"[b]Persona[/b] {s.persona}"
             f"{'  until ' + time.strftime('%H:%M', time.localtime(s.persona_expires_at)) if s.persona_expires_at else ''}\n"
             f"[b]Model[/b]   {cfg.backend}:{cfg.model}\n"
@@ -104,13 +116,15 @@ class MeshPotatoApp(App[None]):
         senders = "\n".join(
             f"  {name[:20]:<20} {tokens:.2f}/{snap['sender_capacity']}" for name, tokens in snap["senders"].items()
         ) or "  (none yet)"
+        queue_depth = len(self._reply_queue.waiting) if self._reply_queue is not None else s.queue_depth
+        reply_active = self._reply_queue.active is not None if self._reply_queue is not None else s.reply_active
         limits = (
             f"[b]Rate limits[/b]\n"
             f"global  {snap['global_tokens']:.2f}/{snap['global_capacity']} tokens\n"
             f"        {snap['global_per_min']:g}/min effective "
             f"(configured {cfg.global_rate_per_min:g}/min x {snap['global_factor']:g})\n"
             f"per-sender {cfg.sender_rate_per_min:g}/min, recent:\n{senders}\n"
-            f"queue {s.queue_depth}/{cfg.queue_max_pending}, active {'yes' if s.reply_active else 'no'}\n"
+            f"shared queue {queue_depth}/{cfg.queue_max_pending}, active {'yes' if reply_active else 'no'}\n"
             f"expired {s.queue_expired}, queue-full {s.queue_full}"
         )
         self.query_one("#status", Static).update(status)
@@ -119,6 +133,8 @@ class MeshPotatoApp(App[None]):
 
     def _fortune_text(self) -> str:
         f = self._fortune
+        if len(self._channel_stats) > 1 and self._stats.channel_idx != self._cfg.channel_idx:
+            return f"primary channel only (idx {self._cfg.channel_idx})"
         if f is None:
             return "off"
         nxt = f.next_at.strftime("%a %H:%M") if f.next_at else "?"
@@ -188,6 +204,8 @@ class MeshPotatoApp(App[None]):
             line = f"{ts} [{event}] {details}"
         else:
             return  # per-poll utilization records are shown in the panel, not the log
+        if "channel_idx" in record:
+            line = f"[ch {record['channel_idx']}] {line}"
         try:
             self.query_one("#log", RichLog).write(line)
         except Exception:  # noqa: BLE001 - widget may not be mounted yet

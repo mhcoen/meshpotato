@@ -9,12 +9,13 @@ any key may appear in any section.
 |---|---|---|
 | `port` | required | Serial device of the companion radio |
 | `channel_idx` | `1` | Channel slot on the radio to serve |
+| `additional_channels` | `[]` | Extra radio slots for isolated AI conversations, e.g. `[2, 3]`; environment form `2,3`. All slots share one queue and rate budget. Introductions, tips and fortunes stay on `channel_idx` |
 | `announce_startup` | `true` | Broadcast an introduction on startup; `false` or CLI `--no-announce` skips it |
 | `bot_name` | `Mesh Potato` | Must equal the radio's node name |
 | `trigger_prefix` | `""` | Off by default, so every message is a prompt, except bare reactions and lines mentioning someone else, and the model may pass on remarks between other people; `"!ai "` answers only messages beginning with that exact text |
 | `reply_max_chars` | automatic | Omit to calculate 160 minus the UTF-8 byte length of `bot_name` minus 2 (147 for Mesh Potato). Optionally set a smaller character cap, including the exact-name mention; every reply is also checked in UTF-8 bytes. |
 | `prompt_max_chars` | `160` | Longer prompts are dropped |
-| `reply_delay_s` | `8.0` | Seconds after a question before the reply is transmitted, jittered; see [Rate limits and channel load](../README.md#rate-limits-and-channel-load) |
+| `reply_delay_s` | `2.0` | Seconds after a question before the reply is transmitted, jittered; see [Rate limits and channel load](../README.md#rate-limits-and-channel-load) |
 | `shorten_retries` | `2` | Times a reply that does not fit goes back to the model with the exact limit |
 | `too_long_reply` | `That answer will not fit in one message, ask me something narrower.` | Sent when it still does not fit after the retries |
 | `apology` | `Sorry, I couldn't answer that one.` | Posted on model timeout or error |
@@ -35,6 +36,8 @@ any key may appear in any section.
 | `model_timeout_s` | `25.0` | One total deadline shared by web retrieval, initial generation and every shortening/content retry; retrieval uses at most 12 seconds of this budget |
 | `web_enabled` | `true` | Automatic current-information lookup and `/web`; NFL/NBA/WNBA/MLB/NHL scores, active-season standings and next games use structured ESPN feeds without the model; sports pronoun follow-ups require that sender's recent successfully sent team answer; other searches send the question to DuckDuckGo and fetch up to three public result pages |
 | `web_location` | `Madison, Wisconsin` | Default location for local weather/hours questions without an explicit location; dates, including sports game dates, use the computer's local timezone |
+| `traffic_enabled` | `true` | Prefetch Madison Beltline and I-90 (Beltline to I-94) travel times from public Wisconsin 511 tables; requires `web_enabled` |
+| `traffic_refresh_s` | `300.0` | Background refresh interval, 60–600 seconds. Observations older than ten minutes retain their source dates/times |
 | `global_rate_per_min` | `4.0` | Burst floor: replies per minute across all senders |
 | `global_burst` | `1` | Global bucket size |
 | `sender_rate_per_min` | `4.0` | Replies per minute per sender name |
@@ -54,7 +57,7 @@ any key may appear in any section.
 | `duty_low` | `0.15` | Receive duty cycle at which the rate is halved |
 | `duty_high` | `0.30` | Receive duty cycle at which replies pause |
 | `tx_duty_budget` | `0.02` | Own-transmit airtime target, not a hard ceiling or network-wide budget |
-| `state_db` | `meshpotato.sqlite3` | SQLite conversation file, restricted to its owner (0600), relative to the working directory; `""` disables persistence |
+| `state_db` | `meshpotato.sqlite3` | Primary SQLite conversation file, owner-only (0600), relative to the working directory. Extra slots use neighboring `meshpotato.channel-N.sqlite3` files; `""` disables persistence for all channels |
 | `state_save_interval_s` | `5.0` | Seconds between snapshots; also saves on clean shutdown and immediately for `/forget` |
 | `history_size` | `20` | Maximum recent channel lines, including saved history |
 | `history_max_age_s` | `3600.0` | Expire channel lines after one hour, including across restarts; also bounds in-memory activity records by time since reception |

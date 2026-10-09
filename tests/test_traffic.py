@@ -9,10 +9,21 @@ import pytest
 from bot.config import ConfigError
 from bot.jsonlog import EventLog
 from bot.lookup_messages import TRAFFIC_UNAVAILABLE
-from bot.traffic import CENTRAL, TrafficCache, beltline_direction, fetch_table, parse_reports
+from bot.traffic import CENTRAL, TrafficCache, beltline_direction, cached_traffic_direction, fetch_table, parse_reports
 from tests.conftest import FakeBackend, FakeClock, Harness, make_config
 
 NOW = datetime(2026, 10, 9, 8, 0, tzinfo=CENTRAL).timestamp()
+
+
+def interstate_table(now=NOW):
+    return {'recordsFiltered': 2, 'data': [
+        {'county': 'Dane', 'routeName': 'I-39/90 NB US 12/18 to Badger Interchange',
+         'travelTime': '4', 'travelTimeNominal': '4', 'delay': '0',
+         'lastUpdated': datetime.fromtimestamp(now, CENTRAL).strftime('%m/%d/%y, %I:%M %p')},
+        {'county': 'Dane', 'routeName': 'I-39/90 SB Badger Interchange to US 12/18',
+         'travelTime': '8', 'travelTimeNominal': '3', 'delay': '5',
+         'lastUpdated': datetime.fromtimestamp(now, CENTRAL).strftime('%m/%d/%y, %I:%M %p')},
+    ]}
 
 
 def table(now=NOW):
@@ -228,14 +239,20 @@ def test_refresh_config_limits(interval):
 
 async def test_transport_is_bounded_fixed_origin_and_no_credentials(monkeypatch):
     real_client = httpx.AsyncClient
+    searches = []
     def respond(request):
         assert request.url.host == '511wi.gov'
         query = __import__('json').loads(request.url.params['query'])
-        assert query['search']['value'] == 'Beltline'
+        search = query['search']['value']
+        searches.append(search)
+        assert search in ('Beltline', 'I-39/90')
         assert 'authorization' not in request.headers
-        return httpx.Response(200, json=table())
+        return httpx.Response(200, json=table() if search == 'Beltline' else interstate_table())
     monkeypatch.setattr('bot.traffic.httpx.AsyncClient', lambda **kw: real_client(transport=httpx.MockTransport(respond), **kw))
-    assert await fetch_table() == table()
+    result = await fetch_table()
+    assert result['recordsFiltered'] == 4
+    assert set(searches) == {'Beltline', 'I-39/90'}
+    assert set(parse_reports(result, NOW, NOW)) == {'EB', 'WB', 'I90:NB', 'I90:SB'}
 
 
 async def test_expiry_at_send_updates_both_radio_output_and_record(monkeypatch):
@@ -356,3 +373,129 @@ async def test_partial_refresh_uses_latest_each_direction_not_old_combined_snaps
     assert 'Eastbound 27 min, 10 min delay' in c.answer('',130)
     assert 'Westbound 17 min, no delay' in c.answer('',130)
     assert '1 min ago' in c.answer('',130)
+
+
+@pytest.mark.parametrize('question,direction', [
+    ('traffic on i90', 'I90'), ('How is traffic on I-90?', 'I90'),
+    ('Madison I 90 northbound traffic?', 'I90:NB'), ('I-39/90 southbound delays?', 'I90:SB'),
+    ('Interstate 90 traffic both directions', 'I90'),
+    ('I90 traffic in Chicago', None), ('I90 traffic to Janesville', None),
+    ('I90 traffic tomorrow', None), ('Why was I90 closed yesterday?', None),
+    ('I90 eastbound traffic', None), ('I90 traffic and Packers record', None),
+])
+def test_i90_queries_are_scoped_to_verified_madison_corridor(question, direction):
+    assert cached_traffic_direction(question) == direction
+    assert cached_traffic_direction('I90 traffic', 'Chicago, IL') is None
+
+
+@pytest.mark.parametrize('question', ['traffic on i90', '/traffic I-90', '!traffic I90', '/web I-90 traffic'])
+async def test_interstate_questions_use_cached_measurements_and_actual_timestamps(question):
+    clock = FakeClock(NOW)
+    h = Harness(make_config(web_enabled=True, bot_name='Mesh Potato', reply_max_chars=147), FakeBackend(), clock)
+    c = h.service.traffic = cache(clock)
+    async def fetch():
+        return interstate_table(NOW-3600)
+    c.fetch = fetch
+    assert await c.refresh()
+    async def forbidden(*args):
+        pytest.fail('foreground search should not run for a cached corridor')
+    h.service.web.search = forbidden
+    h.service._backend_retry_at = NOW+100
+    await h.say('Michael: '+question)
+    answer = h.sent[-1][1]
+    assert 'I-90 Beltline to I-94:' in answer
+    assert 'Northbound 4 min, no delay (7:00 AM)' in answer
+    assert 'Southbound 8 min, 5 min delay (7:00 AM)' in answer
+    assert len(('Mesh Potato: '+answer).encode()) <= 160
+    assert not h.backend.calls
+    assert any(r.get('event') == 'traffic_lookup' and r['outcome'] == 'last-known' for r in h.records)
+
+
+@pytest.mark.parametrize('question', ['traffic downtown', '/traffic downtown', '!traffic downtown',
+                                      '/web downtown traffic', 'How is the traffic?'])
+async def test_broad_traffic_gets_useful_clarification_without_search_or_model(question):
+    h = Harness(make_config(web_enabled=True), FakeBackend(), FakeClock(NOW))
+    async def forbidden(*args):
+        pytest.fail('clarification must not call search')
+    h.service.web.search = forbidden
+    h.service._backend_retry_at = NOW+100
+    await h.say('Michael: '+question)
+    answer = h.sent[-1][1]
+    assert ('which street and direction?' if 'downtown' in question else 'Which road and direction?') in answer
+    assert "can't get it right now" not in answer and not h.backend.calls
+
+
+async def test_downtown_followup_checks_requested_street_not_invented_live_conditions():
+    from unittest.mock import AsyncMock
+    from bot.lookup_messages import TRAFFIC_UNVERIFIED
+    h = Harness(make_config(web_enabled=True), FakeBackend('Traffic is light right now.'), FakeClock(NOW))
+    h.service.web.search = AsyncMock(return_value=[])
+    await h.say('Michael: traffic downtown')
+    h.clock.advance(20)
+    await h.say('Michael: John Nolen Drive northbound')
+    assert 'traffic on John Nolen Drive northbound' in h.service.web.search.call_args.args[0]
+    assert h.sent[-1][1] == '@[Michael] '+TRAFFIC_UNVERIFIED
+    assert 'light right now' not in h.sent[-1][1]
+
+
+@pytest.mark.parametrize('next_sender,elapsed', [('Other', 20), ('Michael', 121)])
+async def test_traffic_clarification_is_sender_local_and_expires(next_sender, elapsed):
+    from unittest.mock import AsyncMock
+    h = Harness(make_config(web_enabled=True), FakeBackend('That street is in Madison.'), FakeClock(NOW))
+    h.service.web.search = AsyncMock(return_value=[])
+    await h.say('Michael: traffic downtown')
+    h.clock.advance(elapsed)
+    await h.say(next_sender+': John Nolen Drive northbound')
+    assert not h.service.web.search.called
+
+
+async def test_one_feed_failure_preserves_other_feed_and_old_interstate(monkeypatch):
+    import bot.traffic as traffic
+    c = cache()
+    c.reports = parse_reports(interstate_table(NOW-3600), NOW, NOW)
+    old = c.reports.copy()
+    async def partial(search):
+        if search == 'I-39/90':
+            raise httpx.ConnectError('fake outage')
+        return table()
+    monkeypatch.setattr(traffic, '_fetch_table', partial)
+    c.fetch = fetch_table
+    assert await c.refresh()
+    assert c.reports['I90:NB'] == old['I90:NB']
+    assert 'Eastbound 22 min' in c.answer('', 136)
+    assert '(7:00 AM)' in c.answer('I90:NB', 136)
+
+
+async def test_partial_interstate_page_is_not_treated_as_complete(monkeypatch):
+    import bot.traffic as traffic
+    async def partial(search):
+        payload = table() if search == 'Beltline' else interstate_table()
+        if search != 'Beltline':
+            payload['recordsFiltered'] = 200
+        return payload
+    monkeypatch.setattr(traffic, '_fetch_table', partial)
+    assert set(parse_reports(await fetch_table(), NOW, NOW)) == {'EB', 'WB'}
+
+
+def test_no_report_for_adjacent_or_alternate_routes_or_missing_measurements():
+    p = interstate_table()
+    p['data'][0]['routeName'] = 'Sign 339 I-39/90 NB Church St to I-94'
+    p['data'][1]['travelTime'] = '0'
+    assert parse_reports(p, NOW, NOW) == {}
+
+
+async def test_forget_during_clarification_does_not_restore_traffic_context(monkeypatch):
+    h = Harness(make_config(web_enabled=True, global_burst=3, sender_burst=3), FakeBackend(), FakeClock(NOW))
+    entered, release = asyncio.Event(), asyncio.Event()
+    async def hold(received):
+        entered.set()
+        await release.wait()
+        return 0
+    monkeypatch.setattr(h.service, '_hold_for_quiet_channel', hold)
+    question = asyncio.create_task(h.say('Michael: traffic downtown'))
+    await asyncio.wait_for(entered.wait(), 1)
+    await h.say('Michael: /forget')  # clears data even when its confirmation cannot reserve airtime
+    release.set()
+    await asyncio.wait_for(question, 1)
+    assert not h.service._traffic_clarifications
+    assert not h.service.memory.rounds_for('Michael')

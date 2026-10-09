@@ -55,7 +55,7 @@ from bot.text_safety import forged_frame, safe_sender, transcript_field
 from bot.ratelimit import RateLimiter, Reservation
 from bot.reception import RECEPTION_VOICE, asks_about_reception, reception_context, is_plain_reception_report
 from bot.reply import compose_reply, shape_reply, reply_prefix, reply_body_room, plain_ascii
-from bot.traffic import beltline_direction
+from bot.traffic import cached_traffic_direction, traffic_clarification, traffic_followup
 from bot.triage import is_reaction, mentions_someone, social_acknowledgment
 from bot.lifecycle import close_step, disconnect
 from bot.storage import StateError, StateStore
@@ -161,6 +161,15 @@ class PendingReply:
 
 
 @dataclass
+class ReplyQueue:
+    """One bounded FIFO and reservation owner across all channels on a radio."""
+
+    requests: dict[asyncio.Task, PendingReply] = field(default_factory=dict)
+    waiting: deque[asyncio.Task] = field(default_factory=deque)
+    active: asyncio.Task | None = None
+
+
+@dataclass
 class Stats:
     connected: bool = False
     channel_name: str = ""
@@ -207,6 +216,9 @@ class BotService:
         fortune: Any = None,
         references: tuple[Reference, ...] | None = None,
         wall_clock: Callable[[], float] = time.time,
+        reply_queue: ReplyQueue | None = None,
+        managed_radio: bool = False,
+        manage_shared_workers: bool = True,
     ):
         self.cfg = cfg
         self._reply_max_bytes = WIRE_TEXT_MAX - len(f"{cfg.bot_name}: ".encode("utf-8"))
@@ -240,8 +252,12 @@ class BotService:
         self.timer_tick_s = 30.0  # how often the persona timer re-checks the clock (tests shrink it)
         self.shutdown_timeout_s = 3.0
         self._requests: dict[asyncio.Task, PendingReply] = {}
-        self._waiting: deque[asyncio.Task] = deque()
-        self._active_request: asyncio.Task | None = None
+        self.reply_queue = reply_queue if reply_queue is not None else ReplyQueue()
+        self._waiting = self.reply_queue.waiting
+        self._managed_radio = managed_radio
+        self._manage_shared_workers = manage_shared_workers
+        self._prepared = False
+        self.channel_identity: bytes | None = None
         self.queue_tick_s = 1.0  # clock/limiter recheck; tests use a shorter tick
         self._start_task: asyncio.Task | None = None
         self._stop_task: asyncio.Task | None = None
@@ -260,6 +276,7 @@ class BotService:
         self._activity_sequence = 0
         self.web = WebLookup()
         self.traffic = None  # CLI attaches the optional background cache
+        self._traffic_clarifications: OrderedDict[str, float] = OrderedDict()
         self.tips = None
         self._last_channel_activity = self._clock()
         try:
@@ -284,7 +301,18 @@ class BotService:
         finally:
             self._start_task = None
 
-    async def _start(self) -> None:
+    @property
+    def _active_request(self) -> asyncio.Task | None:
+        return self.reply_queue.active
+
+    @_active_request.setter
+    def _active_request(self, task: asyncio.Task | None) -> None:
+        self.reply_queue.active = task
+
+    async def prepare(self) -> None:
+        """Validate the channel and restore its state before enabling any handlers."""
+        if self._prepared:
+            return
         info = getattr(self.mc, "self_info", None)
         radio_name = info.get("name") if isinstance(info, dict) else None
         if not isinstance(radio_name, str) or not radio_name:
@@ -306,6 +334,8 @@ class BotService:
             )
         self.stats.channel_name = name
         self._channel_hash = (result.payload or {}).get("channel_hash")
+        secret = (result.payload or {}).get("channel_secret")
+        self.channel_identity = bytes(secret) if isinstance(secret, (bytes, bytearray)) else None
         self.facts = self._compose_facts(getattr(self.mc, "self_info", None) or {})
         if self.cfg.state_db:
             store = None
@@ -325,11 +355,15 @@ class BotService:
             self._update_memory_stats()
             self.log.emit("state_restored", history=len(self.history), people=self.memory.people,
                           rounds=self.memory.total_rounds, **discarded)
+        self._prepared = True
+
+    async def _start(self) -> None:
+        await self.prepare()
         self.stats.connected = bool(getattr(self.mc, "is_connected", True))
         self.log.emit(
             "startup",
             channel_idx=self.cfg.channel_idx,
-            channel_name=name,
+            channel_name=self.stats.channel_name,
             bot_name=self.cfg.bot_name,
             version=__version__,
             backend=self.backend.name,
@@ -345,18 +379,19 @@ class BotService:
         )
         self._subs.append(self.mc.subscribe(EventType.CONNECTED, self._on_connected))
         self._subs.append(self.mc.subscribe(EventType.DISCONNECTED, self._on_disconnected))
-        if self.cfg.rx_log != "off":
+        if self.cfg.rx_log != "off" and not self._managed_radio:
             # The companion pushes a log frame for every packet it hears. With channel
             # decryption on, packets on our channel decode to "Sender: text", so the log
             # shows what the radio heard even when no message was delivered.
             self.mc.set_decrypt_channel_logs(True)
             self._subs.append(self.mc.subscribe(EventType.RX_LOG_DATA, self._on_rx_log))
-        await self.mc.start_auto_message_fetching()
-        if self.monitor is not None:
+        if not self._managed_radio:
+            await self.mc.start_auto_message_fetching()
+        if self.monitor is not None and self._manage_shared_workers:
             self.monitor.start()
         if self.fortune is not None:
             self.fortune.start()
-        if self.traffic is not None:
+        if self.traffic is not None and self._manage_shared_workers:
             self.traffic.start()
         if self.tips is not None:
             try:
@@ -416,11 +451,13 @@ class BotService:
         self._startup_announcement_task = None
         self._state_task = None
         await self._cancel_persona_timer()
-        for worker in (self.tips, self.traffic, self.fortune, self.monitor):
+        shared_workers = (self.traffic, self.monitor) if self._manage_shared_workers else ()
+        for worker in (self.tips, self.fortune, *shared_workers):
             if worker is not None:
                 await close_step(worker.stop, self.shutdown_timeout_s, self.log)
-        await close_step(self.mc.stop_auto_message_fetching, self.shutdown_timeout_s, self.log)
-        await disconnect(self.mc, self.shutdown_timeout_s, self.log)
+        if not self._managed_radio:
+            await close_step(self.mc.stop_auto_message_fetching, self.shutdown_timeout_s, self.log)
+            await disconnect(self.mc, self.shutdown_timeout_s, self.log)
         await close_step(self.backend.aclose, self.shutdown_timeout_s, self.log)
         if self._state_store is not None:
             self._save_state()
@@ -593,7 +630,7 @@ class BotService:
 
     async def handle_payload(self, payload: dict[str, Any]) -> Decision:
         parsed = parse_channel_text(payload.get("text", "") or "")
-        if self._stopped or len(self._requests) >= 512:
+        if self._stopped or len(self.reply_queue.requests) >= 512:
             return self._record(parsed, payload.get("path_len"), Decision.DROP_RATE_LIMITED, reason="stopped" if self._stopped else "busy")
         async with self._request(parsed.sender):
             try:
@@ -754,6 +791,12 @@ class BotService:
                 injection_error=verdict.error,
             )
         prompt = verdict.text  # sanitized form when that mode is on
+        traffic_asked_at = self._traffic_clarifications.pop(parsed.sender, None)
+        if (self.cfg.web_enabled and self.cfg.traffic_enabled and not explicit_web
+                and traffic_asked_at is not None and 0 <= self._clock() - traffic_asked_at <= 120):
+            if followup := traffic_followup(prompt):
+                prompt = followup
+                self._check(prompt, 'traffic-followup')
 
         # 5. Context, checked before any token is spent so a blocked message costs nothing.
         # The triggering line is already the newest history entry; exclude it.
@@ -785,9 +828,12 @@ class BotService:
             return self._record(parsed, path_len, Decision.DROP_EMPTY, reason="sender-name leaves no room for fixed replies")
         state = self._requests[asyncio.current_task()]
         state.recovery_radio_prompt = radio_prompt
-        traffic = (beltline_direction(prompt, cfg.web_location)
+        traffic = (cached_traffic_direction(prompt, cfg.web_location)
                    if cfg.web_enabled and cfg.traffic_enabled and self.traffic is not None else None)
-        state.program_reply = '' if explicit_web else self._program_reply(prompt, parsed.sender)
+        state.program_reply = (traffic_clarification(prompt, cfg.web_location)
+                               if cfg.web_enabled and cfg.traffic_enabled else '')
+        if not state.program_reply and not explicit_web:
+            state.program_reply = self._program_reply(prompt, parsed.sender)
         if traffic is None and self._clock() < self._backend_retry_at and not state.program_reply and not (cfg.web_enabled and (is_sports_query(self._sports_prompt(parsed.sender, prompt)) or weather_location(prompt) is not None)):
             return self._record(parsed, path_len, Decision.DROP_MODEL_UNAVAILABLE, reason="model cooldown")
         # 6. Keep the incoming-message snapshot, adding bot answers completed
@@ -1014,6 +1060,11 @@ class BotService:
         decision = Decision.ANSWERED_FALLBACK if fallback else Decision.ANSWERED
         if await self._send(reply, mention_sender=parsed.sender):
             self.stats.replies_sent += 1
+            if state.remember and state.program_reply and traffic_clarification(prompt, cfg.web_location) == state.program_reply:
+                self._traffic_clarifications[parsed.sender] = self._clock()
+                self._traffic_clarifications.move_to_end(parsed.sender)
+                while len(self._traffic_clarifications) > cfg.person_memory_people:
+                    self._traffic_clarifications.popitem(last=False)
             if state.sports_team and state.remember and state.sports_expires_at is not None:
                 self._sports_context[parsed.sender] = (state.sports_team, self._clock())
                 self._sports_context.move_to_end(parsed.sender)
@@ -1046,7 +1097,7 @@ class BotService:
         reply = compose_reply(parsed.sender, state.program_reply, self.cfg.reply_max_chars,
                               max_bytes=self._reply_max_bytes)
         outcome = (('cache' if self.traffic.is_current(direction) else 'last-known')
-                   if state.program_reply.startswith('Beltline: ') else 'unavailable')
+                   if state.program_reply.startswith(('Beltline: ', 'I-90 Beltline to I-94: ')) else 'unavailable')
         self.log.emit('traffic_lookup', outcome=outcome,
                       direction=direction or 'both', reply=reply)
         if sent:
@@ -1063,6 +1114,9 @@ class BotService:
         return with_team_context(prompt, context)
 
     def _program_reply(self, prompt, sender=''):
+        if self.cfg.web_enabled and self.cfg.traffic_enabled:
+            if notice := traffic_clarification(prompt, self.cfg.web_location):
+                return notice
         remaining = max(0, self._persona_deadline - self._clock()) if self._persona_deadline is not None else None
         if (sports_kind(prompt) == 'next' and not has_team(prompt)
                 and self._sports_prompt(sender, prompt) == prompt
@@ -1167,6 +1221,7 @@ class BotService:
         task = asyncio.current_task()
         state = PendingReply(sender, can_send=can_send)
         self._requests[task] = state
+        self.reply_queue.requests[task] = state
         try:
             yield state
         finally:
@@ -1186,13 +1241,14 @@ class BotService:
                 self.stats.reply_active = False
             self.stats.queue_depth = len(self._waiting)
             self._requests.pop(task, None)
+            self.reply_queue.requests.pop(task, None)
 
     def _admit(self, sender: str) -> Reservation:
         current = asyncio.current_task()
         busy = ((self._active_request is not None and self._active_request is not current)
                 or (bool(self._waiting) and self._waiting[0] is not current)
                 or any(task is not current and state.reservation is not None and state.reservation.allowed
-                       for task, state in self._requests.items()))
+                       for task, state in self.reply_queue.requests.items()))
         reservation = Reservation(False, "busy") if busy else self.limiter.reserve(sender)
         self._requests[asyncio.current_task()].reservation = reservation
         return reservation
@@ -1454,7 +1510,7 @@ class BotService:
         return (not self._stopped and self.limiter.global_factor == 1
                 and self._clock() - self._last_channel_activity >= self.cfg.tips_quiet_s
                 and not self._waiting
-                and not any(task is not current for task in self._requests))
+                and not any(task is not current for task in self.reply_queue.requests))
 
     async def post_usage_tip(self, text: str, can_send: Callable[[], bool]) -> str:
         """One reviewed example, without a model call, queue, or retransmission."""
@@ -1644,6 +1700,7 @@ class BotService:
             decision = Decision.ANSWERED_MAGIC8
         elif command == FORGET_COMMAND:
             self._sports_context.pop(parsed.sender, None)
+            self._traffic_clarifications.pop(parsed.sender, None)
             self._outcomes.pop(parsed.sender, None)
             for state in self._requests.values():
                 if state.sender == parsed.sender:

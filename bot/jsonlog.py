@@ -15,6 +15,18 @@ from typing import IO, Any
 Listener = Callable[[dict[str, Any]], None]
 
 
+class ChannelLog:
+    """Tag channel-local events without duplicating the shared stream/listeners."""
+
+    def __init__(self, parent: EventLog, channel_idx: int):
+        self.parent = parent
+        self.channel_idx = channel_idx
+
+    def emit(self, event: str, **fields: Any) -> dict[str, Any]:
+        fields.setdefault("channel_idx", self.channel_idx)
+        return self.parent.emit(event, **fields)
+
+
 class EventLog:
     def __init__(self, stream: IO[str] | None = None, path: str | None = None):
         self._file: IO[str] | None = None

@@ -17,6 +17,7 @@ def runtime_reference(cfg):
     p = cfg.command_prefix
     return (abbreviated_readme() + ' Runtime facts: '
             f'Bot name {cfg.bot_name}; model {cfg.model}; backend {cfg.backend}. '
+            f'This conversation is on radio channel slot {cfg.channel_idx}; other channels have separate memory. '
             f'One reply has at most {cfg.reply_max_chars} characters including its addressee, '
             f'and must also fit the radio byte limit. Generation and lookup share {cfg.model_timeout_s:g} seconds. '
             f'{p}help shows examples; {p}help topics lists commands. Both ! and / prefixes work, as does plain help. '

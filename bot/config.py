@@ -44,6 +44,7 @@ class Config:
     # [radio]
     port: str = ""
     channel_idx: int = 1
+    additional_channels: tuple[int, ...] = ()
 
     # [bot]
     bot_name: str = "Mesh Potato"
@@ -161,6 +162,10 @@ class Config:
             errors.append("port is required (radio.port or MESHPOTATO_PORT)")
         if not 0 <= self.channel_idx <= 255:
             errors.append("channel_idx must be in 0..255")
+        if any(type(idx) is not int or not 0 <= idx <= 255 for idx in self.additional_channels):
+            errors.append("additional_channels must contain integer slots in 0..255")
+        if len(set(self.channel_indices)) != len(self.channel_indices):
+            errors.append("channel slots must be unique, including channel_idx")
         if not self.bot_name.strip():
             errors.append("bot_name must not be empty")
         if ":" in self.bot_name:
@@ -336,12 +341,39 @@ class Config:
     def default_persona_text(self) -> str:
         return self.personas[self.default_persona]
 
+    @property
+    def channel_indices(self) -> tuple[int, ...]:
+        return (self.channel_idx, *self.additional_channels)
+
+    def for_channel(self, idx: int) -> "Config":
+        """Keep the primary database compatible; give every extra slot its own file."""
+        if idx not in self.channel_indices:
+            raise ConfigError(f"channel {idx} is not configured")
+        primary = idx == self.channel_idx
+        path = self.state_db
+        if not primary and path and path != ":memory:":
+            p = Path(path)
+            path = str(p.with_name(f"{p.stem}.channel-{idx}{p.suffix}"))
+        return replace(self, channel_idx=idx, additional_channels=(), state_db=path,
+                       announce_startup=self.announce_startup and primary,
+                       tips_enabled=self.tips_enabled and primary,
+                       fortune_enabled=self.fortune_enabled and primary)
+
 
 _FIELD_TYPES: dict[str, type] = {f.name: f.type for f in fields(Config)}  # type: ignore[misc]
 
 
 def _coerce(name: str, value: Any) -> Any:
     """Coerce a TOML or env value to the declared field type."""
+    if name == "additional_channels":
+        if isinstance(value, str):
+            parts = value.split(",") if value.strip() else []
+            if any(not part.strip().isascii() or not part.strip().isdigit() for part in parts):
+                raise ConfigError("additional_channels: expected comma-separated integer slots")
+            value = [int(part.strip()) for part in parts]
+        if not isinstance(value, (list, tuple)) or any(type(idx) is not int for idx in value):
+            raise ConfigError("additional_channels: expected an array of integer slots")
+        return tuple(value)
     if name == "personas":
         if not isinstance(value, Mapping):
             raise ConfigError("personas must be a table of name = \"text\"")
@@ -379,10 +411,8 @@ def _flatten(doc: Mapping[str, Any]) -> dict[str, Any]:
     """Merge top-level keys and one level of sections into a single flat dict."""
     flat: dict[str, Any] = {}
     for key, value in doc.items():
-        if key == "personas":
-            flat[key] = value  # a table of presets, not a section of settings
-            continue
-        items = value.items() if isinstance(value, Mapping) else [(key, value)]
+        # Known fields (including structured ones) are values, not sections.
+        items = value.items() if key not in _FIELD_TYPES and isinstance(value, Mapping) else [(key, value)]
         for name, val in items:
             if name not in _FIELD_TYPES:
                 raise ConfigError(f"unknown config key: {name}")

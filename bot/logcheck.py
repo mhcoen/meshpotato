@@ -61,8 +61,10 @@ class CheckResult:
 def check_log(path: str | Path) -> CheckResult:
     result = CheckResult()
     heard: list[tuple[str, str, int | None, float | None]] = []
-    delivered: set[str] = set()
-    pending: Counter[str] = Counter()
+    heard_channels: list[int | None] = []
+    delivered: set[tuple[int | None, str]] = set()
+    pending: Counter[tuple[int | None, str]] = Counter()
+    legacy_channel = None
     with Path(path).open(encoding="utf-8") as fh:
         for raw in fh:
             raw = raw.strip()
@@ -74,9 +76,12 @@ def check_log(path: str | Path) -> CheckResult:
                 result.bad_lines += 1
                 continue
             event = r.get("event")
+            channel = r.get("channel_idx", legacy_channel)
             if event == "startup" and r.get("bot_name"):
                 result.bot_name = str(r["bot_name"])
-                pending.clear()  # cancelled work from a previous run cannot finish now
+                legacy_channel = channel
+                # Cancelled work cannot finish after this channel restarts.
+                pending = Counter({key: count for key, count in pending.items() if key[0] != channel})
             elif event == "rx" and r.get("ours") and r.get("message"):
                 text = _norm(str(r["message"]))
                 if result.bot_name and text.startswith(result.bot_name + ":"):
@@ -84,6 +89,7 @@ def check_log(path: str | Path) -> CheckResult:
                     continue
                 result.heard += 1
                 heard.append((str(r.get("ts", "")), text, r.get("rssi"), r.get("snr")))
+                heard_channels.append(channel)
                 if isinstance(r.get("rssi"), (int, float)):
                     result.rssi.append(int(r["rssi"]))
                 if isinstance(r.get("snr"), (int, float)):
@@ -91,17 +97,17 @@ def check_log(path: str | Path) -> CheckResult:
             elif event == "received":
                 text = _norm(f"{r.get('sender', '')}: {r.get('prompt', '')}")
                 result.delivered += 1
-                pending[text] += 1
-                delivered.add(text)
+                pending[channel, text] += 1
+                delivered.add((channel, text))
             elif event == "inbound":
                 text = _norm(f"{r.get('sender', '')}: {r.get('prompt', '')}")
-                if pending[text]:
-                    pending[text] -= 1
-                    if not pending[text]:
-                        del pending[text]
+                if pending[channel, text]:
+                    pending[channel, text] -= 1
+                    if not pending[channel, text]:
+                        del pending[channel, text]
                 else:
                     result.delivered += 1
                 result.decisions[str(r.get("decision", "?"))] += 1
-                delivered.add(text)
-    result.undelivered = [h for h in heard if h[1] not in delivered]
+                delivered.add((channel, text))
+    result.undelivered = [h for channel, h in zip(heard_channels, heard) if (channel, h[1]) not in delivered]
     return result

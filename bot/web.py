@@ -14,7 +14,7 @@ from bot.quality import third_party_jab
 from bot.web_evidence import supports, qualifiers
 from bot.sports_queries import is_sports_query, asks_sports_capabilities
 from bot.weather import weather_location
-from bot.lookup_messages import WEATHER_UNAVAILABLE, SPORTS_UNAVAILABLE, TRAFFIC_UNAVAILABLE
+from bot.lookup_messages import WEATHER_UNAVAILABLE, SPORTS_UNAVAILABLE, TRAFFIC_UNAVAILABLE, TRAFFIC_UNVERIFIED
 from tld import get_fld
 
 UNVERIFIED = "I couldn't verify that from current web sources."
@@ -29,7 +29,7 @@ def lookup_failure(prompt: str) -> str:
         return WEATHER_UNAVAILABLE
     if (re.search(r'\btraffic\b', prompt, re.I)
             and not re.search(r'\b(?:radio|mesh|network|packet|website|internet)\b', prompt, re.I)):
-        return TRAFFIC_UNAVAILABLE
+        return TRAFFIC_UNAVAILABLE if re.search(r'\bbelt\s*line\b', prompt, re.I) else TRAFFIC_UNVERIFIED
     return UNVERIFIED
 
 

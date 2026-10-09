@@ -1,4 +1,7 @@
 Mesh Potato is a conversational bot on a low-bandwidth MeshCore radio channel.
+One radio can serve several configured channels. Each has separate conversations,
+personal memory and voice settings; all share a reply queue and airtime limits.
+Chess and backgammon game management are not implemented yet.
 It answers questions, chats, writes short poems and jokes, translates text, and
 can explain radio concepts. Nice is the default voice; other voices are optional.
 Changing a voice changes style, not capabilities. Serious gives straight answers,
@@ -13,9 +16,11 @@ or web search is unsupported.
 Weather and wx summaries use verified structured weather data: location, current
 conditions and wind, today's high/low, and tomorrow's forecast. Weather icons and
 degree symbols are allowed when the summary fits one radio packet.
-When enabled, Madison Beltline travel times are refreshed every five minutes
+When enabled, Madison Beltline and I-90 travel times refresh every five minutes
 from Wisconsin 511 and answered from a prepared cache without a model call.
-Reports cover University Avenue to I-39/90. Data under ten minutes old shows its
+Beltline reports cover University Avenue to I-39/90; I-90 covers Beltline to I-94.
+Downtown traffic needs a street and direction; there is no downtown-wide feed.
+Unverified roads get a coverage explanation. Data under ten minutes old shows its
 source age; older data shows original times and dates in parentheses.
 Directions and minute counts are written in plain language; times are Central time. Missing or invalid data gets an unavailability notice.
 

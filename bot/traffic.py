@@ -1,4 +1,4 @@
-"""Background, model-free Madison Beltline travel times from the public 511 table.
+"""Background, model-free Madison corridor travel times from the public 511 table.
 
 No radio work happens here. Only fresh observations and fetches are called current;
 older measurements are shown with their original update times. Failed polls never
@@ -23,6 +23,10 @@ SOURCE = 'https://511wi.gov/list/traveltimes'
 ENDPOINT = 'https://511wi.gov/List/GetData/TravelTimes'
 CENTRAL = ZoneInfo('America/Chicago')
 MAX_AGE_S = 600.0
+I90_ROUTES = {
+    'I-39/90 NB US 12/18 to Badger Interchange': 'I90:NB',
+    'I-39/90 SB Badger Interchange to US 12/18': 'I90:SB',
+}
 
 
 def beltline_direction(prompt: str, location: str = 'Madison, Wisconsin') -> str | None:
@@ -50,6 +54,56 @@ def beltline_direction(prompt: str, location: str = 'Madison, Wisconsin') -> str
     return 'EB' if east and not west else 'WB' if west and not east else ''
 
 
+def cached_traffic_direction(prompt: str, location: str = 'Madison, Wisconsin') -> str | None:
+    beltline = beltline_direction(prompt, location)
+    if beltline is not None:
+        return beltline
+    text = prompt.lower().replace('’', "'")
+    text = re.sub(r'\bi\s*-?\s*(?:39\s*/\s*)?90\b|\binterstate\s+90\b', 'i90', text)
+    words = set(re.findall(r'[a-z0-9]+', text))
+    allowed = set(('what whats s is the how traffic on i90 madison wi wisconsin '
+                   'in near around right now currently today please tell me about any delays '
+                   'delay travel time times looking look like does it slow congested '
+                   'congestion north south northbound southbound nb sb and both directions '
+                   'can could you give a an update report').split())
+    if ('i90' not in words or words - allowed
+            or not words.intersection({'traffic', 'delay', 'delays', 'time', 'times', 'slow', 'congested', 'congestion'})
+            or ('madison' not in words and not re.search(r'\bmadison\b', location, re.I))):
+        return None
+    north, south = bool(words & {'north', 'northbound', 'nb'}), bool(words & {'south', 'southbound', 'sb'})
+    return 'I90:NB' if north and not south else 'I90:SB' if south and not north else 'I90'
+
+
+def traffic_clarification(prompt: str, location: str) -> str:
+    """Clarify a broad current-traffic request without claiming a feed outage."""
+    words = set(re.findall(r'[a-z0-9]+', prompt.lower().replace('’', "'")))
+    allowed = set(('what whats s is the how traffic downtown madison wi wisconsin '
+                   'in around right now currently today please tell me about looking look like '
+                   'can could you give a an update report').split())
+    if 'traffic' not in words or words - allowed:
+        return ''
+    if 'downtown' in words:
+        place = 'Downtown Madison' if 'madison' in words or re.search(r'\bmadison\b', location, re.I) else 'Downtown'
+        return f'{place}: which street and direction? I can check reports, but have no downtown-wide live traffic feed.'
+    return 'Which road and direction? I have cached 511 times for the Madison Beltline and I-90 between the Beltline and I-94.'
+
+
+def traffic_followup(prompt: str) -> str | None:
+    """A short road answer immediately after our clarification, never a new topic."""
+    text = prompt.strip().rstrip('.?!')
+    if (not 2 <= len(text) <= 80 or not re.fullmatch(r"[\w\s./'-]+", text)
+            or re.search(r'\b(?:what|why|how|weather|sports|write|tell|explain|joke|poem|you|bot)\b', text, re.I)):
+        return None
+    if re.search(r'\b(?:street|st|road|rd|avenue|ave|drive|dr|hwy|highway|beltline|interstate|'
+                 r'i\s*-?\s*90|john nolen|east wash(?:ington)?)\b', text, re.I):
+        return 'traffic on ' + text
+    return None
+
+
+def _directions(direction: str) -> tuple[str, ...]:
+    return ('I90:NB', 'I90:SB') if direction == 'I90' else (direction,) if direction else ('EB', 'WB')
+
+
 @dataclass(frozen=True)
 class Report:
     travel_minutes: float
@@ -75,7 +129,7 @@ def _number(value: float) -> str:
 def parse_reports(payload: dict, now: float, mono: float) -> dict[str, Report]:
     """Validate the observed public-table schema; never infer clear roads from emptiness."""
     rows = payload.get('data') if isinstance(payload, dict) else None
-    if (not isinstance(rows, list) or not rows or len(rows) > 100
+    if (not isinstance(rows, list) or not rows or len(rows) > 200
             or payload.get('recordsFiltered') != len(rows)):
         raise ValueError('missing or incomplete travel-time table')
     selected = {}
@@ -86,9 +140,11 @@ def parse_reports(payload: dict, now: float, mono: float) -> dict[str, Report]:
         if row.get('county') != 'Dane' or not isinstance(route, str):
             continue
         match = re.fullmatch(r'US 12 (EB University Ave to Beltline Interchange|WB Beltline Interchange to University Ave)', route.strip())
-        if not match:
+        direction = I90_ROUTES.get(route.strip())
+        if match:
+            direction = 'EB' if match[1].startswith('EB') else 'WB'
+        if direction is None:
             continue
-        direction = 'EB' if match[1].startswith('EB') else 'WB'
         try:
             current = _minutes(row['travelTime'])
             normal = _minutes(row['travelTimeNominal'])
@@ -107,11 +163,11 @@ def parse_reports(payload: dict, now: float, mono: float) -> dict[str, Report]:
     return selected
 
 
-async def fetch_table() -> dict:
+async def _fetch_table(search: str) -> dict:
     """Same read-only request as 511's public travel-time table, without credentials."""
     columns = ('county', 'filterAndOrderProperty2', 'filterAndOrderProperty1',
                'distance', 'travelTimeNominal', 'travelTime', 'delay')
-    query = {'start': 0, 'length': 100, 'search': {'value': 'Beltline'},
+    query = {'start': 0, 'length': 100, 'search': {'value': search},
              'order': [{'column': 1, 'dir': 'asc'}],
              'columns': [{'name': name, 's': True} for name in columns]}
     async with httpx.AsyncClient(timeout=10, follow_redirects=False, trust_env=False) as client:
@@ -129,6 +185,34 @@ async def fetch_table() -> dict:
                 if len(data) > 1_000_000:
                     raise ValueError('table too large')
             return json.loads(data)
+
+
+async def fetch_table() -> dict:
+    """Fetch two bounded, fixed searches; one failing feed must not erase the other."""
+    results = await asyncio.gather(_fetch_table('Beltline'), _fetch_table('I-39/90'), return_exceptions=True)
+    rows = {}
+    for result in results:
+        if not isinstance(result, dict):
+            continue
+        data = result.get('data')
+        if (not isinstance(data, list) or not 0 < len(data) <= 100
+                or result.get('recordsFiltered') != len(data)
+                or any(not isinstance(row, dict) or not isinstance(row.get('routeName'), str) for row in data)):
+            continue
+        # Search results may overlap. An exact duplicate is one measurement;
+        # conflicting rows must fail rather than silently selecting a value.
+        seen = set()
+        for row in data:
+            key = (row.get('county'), row['routeName'])
+            if key in seen:
+                raise ValueError('duplicate corridor rows')
+            seen.add(key)
+            if key in rows and rows[key] != row:
+                raise ValueError('conflicting corridor rows')
+            rows[key] = row
+    if not rows:
+        raise ValueError('no complete travel-time feeds')
+    return {'recordsFiltered': len(rows), 'data': list(rows.values())}
 
 
 class TrafficCache:
@@ -175,7 +259,7 @@ class TrafficCache:
 
     def _usable_reports(self, direction: str) -> dict[str, Report]:
         now, mono = self.wall_clock(), self.clock()
-        return {d: r for d in ((direction,) if direction else ('EB', 'WB'))
+        return {d: r for d in _directions(direction)
                 if (r := self.reports.get(d)) is not None and now >= r.observed_at
                 and now >= r.fetched_at and mono >= r.fetched_mono}
 
@@ -187,7 +271,7 @@ class TrafficCache:
 
     def is_current(self, direction: str) -> bool:
         reports = self._usable_reports(direction)
-        return len(reports) == (1 if direction else 2) and all(self._fresh(r) for r in reports.values())
+        return len(reports) == len(_directions(direction)) and all(self._fresh(r) for r in reports.values())
 
     def answer(self, direction: str, available: int) -> str:
         unavailable = (TRAFFIC_UNAVAILABLE if len(TRAFFIC_UNAVAILABLE) <= available
@@ -198,8 +282,8 @@ class TrafficCache:
         now = self.wall_clock()
         today = datetime.fromtimestamp(now, CENTRAL).date()
         parts = []
-        for d in ((direction,) if direction else ('EB', 'WB')):
-            name = 'Eastbound' if d == 'EB' else 'Westbound'
+        for d in _directions(direction):
+            name = {'EB': 'Eastbound', 'WB': 'Westbound', 'I90:NB': 'Northbound', 'I90:SB': 'Southbound'}[d]
             report = reports.get(d)
             if report is None:
                 parts.append(f'{name} unavailable')
@@ -215,5 +299,9 @@ class TrafficCache:
                 stamp = date + observed.strftime('%I:%M %p').lstrip('0')
             delay = 'no delay' if report.delay_minutes == 0 else f'{_number(report.delay_minutes)} min delay'
             parts.append(f'{name} {_number(report.travel_minutes)} min, {delay} ({stamp})')
-        answer = 'Beltline: ' + '. '.join(parts) + '. Source: 511.'
+        label = 'I-90 Beltline to I-94: ' if direction.startswith('I90') else 'Beltline: '
+        answer = label + '. '.join(parts) + '. Source: 511.'
+        if len(answer) > available and direction == 'I90':
+            notice = 'I-90 report needs one direction to fit: try /traffic I90 northbound or /traffic I90 southbound.'
+            return notice if len(notice) <= available else unavailable
         return answer if len(answer) <= available else unavailable
