@@ -468,7 +468,7 @@ Current price answers require a page with product/offer metadata; a fetched
 listing still does not prove local stock or the price at a particular store.
 
 General web lookup uses the free DuckDuckGo backend of DDGS and extraction adapted from
-Episodic's Muse mode, without installing Episodic. It requires internet access
+[Episodic](https://github.com/mhcoen/episodic)'s Muse mode, without installing Episodic. It requires internet access
 on the bot's computer. For general searches, the current question is sent to DuckDuckGo, and the
 result pages are fetched directly. Sender names, channel history, radio keys,
 and operator notes are not added to the search query. Anything a person puts
@@ -1566,7 +1566,7 @@ as above, pull the model there, plug in the radio, and change `port` in
 ## License
 
 The bot is MIT licensed; see [LICENSE](../LICENSE). Search/extraction code adapted
-from Episodic retains its [Apache-2.0 license](../bot/EPISODIC-LICENSE).
+from [Episodic](https://github.com/mhcoen/episodic) retains its [Apache-2.0 license](../bot/EPISODIC-LICENSE).
 
 ## Author
 
