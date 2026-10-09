@@ -40,6 +40,24 @@ def test_sections_are_flattened_and_env_overrides_win():
     assert cfg.temperature == 0.7
 
 
+def test_model_section_is_settings_not_the_model_name():
+    # The [model] table shares its name with the model field. Without an env
+    # override the section's keys must land on their own fields.
+    doc = {**MINIMAL, "model": {"model": "qwen3:8b", "ollama_keep_alive": "24h", "temperature": 0.3},
+           "personas": {"grumpy": "Voice: gruff."}}
+    cfg = config_from_mapping(doc, env={})
+    assert cfg.model == "qwen3:8b"
+    assert cfg.ollama_keep_alive == "24h"
+    assert cfg.temperature == 0.3
+    assert cfg.personas["grumpy"] == "Voice: gruff."
+
+
+def test_example_config_names_a_real_model():
+    cfg = load_config("config.example.toml", env={})
+    assert cfg.model == "qwen3:30b-a3b-instruct-2507-q4_K_M"
+    assert cfg.ollama_keep_alive == "24h"
+
+
 def test_unknown_key_is_rejected():
     with pytest.raises(ConfigError, match="unknown config key"):
         config_from_mapping({"radio": {"port": "/dev/a", "chanel_idx": 1}}, env={})

@@ -465,8 +465,13 @@ def _flatten(doc: Mapping[str, Any]) -> dict[str, Any]:
     """Merge top-level keys and one level of sections into a single flat dict."""
     flat: dict[str, Any] = {}
     for key, value in doc.items():
-        # Known fields (including structured ones) are values, not sections.
-        items = value.items() if key not in _FIELD_TYPES and isinstance(value, Mapping) else [(key, value)]
+        # A table holding settings is a section, even when it shares its name with
+        # a field ([model] and model). A table-valued field (personas) and a table
+        # with no settings in it are values, so bad types still reach _coerce.
+        table_field = key in _FIELD_TYPES and str(_FIELD_TYPES[key]).startswith(("dict", "Mapping"))
+        section = (isinstance(value, Mapping) and not table_field
+                   and (key not in _FIELD_TYPES or any(name in _FIELD_TYPES for name in value)))
+        items = value.items() if section else [(key, value)]
         for name, val in items:
             if name not in _FIELD_TYPES:
                 raise ConfigError(f"unknown config key: {name}")
