@@ -30,7 +30,7 @@ def test_help_fits_nondefault_names_and_command_prefixes(name, cap, prefix):
 
 
 def test_help_size_error_identifies_topic_and_relevant_settings():
-    with pytest.raises(ConfigError, match="help topic index.*shorten trigger_prefix or command_prefix"):
+    with pytest.raises(ConfigError, match="help topic topics.*shorten trigger_prefix or command_prefix"):
         config_from_mapping({"port": "/dev/fake", "command_prefix": "!" * 40}, env={})
     with pytest.raises(ConfigError, match="help topic voices.*persona names") as exc:
         config_from_mapping({"port": "/dev/fake", "personas": {

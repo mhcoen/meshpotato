@@ -196,6 +196,7 @@ def collect_scores(query: str, fetch, now: datetime | None = None) -> list[dict]
     except ValueError:
         return []
     leagues = selected_leagues(query)
+    teams = []
     # Resolve the team before requesting scoreboards. Catalogs are small and
     # prevent an unrelated league's large game feed from blocking this request.
     if len(leagues) > 1:
@@ -220,6 +221,8 @@ def collect_scores(query: str, fetch, now: datetime | None = None) -> list[dict]
                 return [{"sports_error": f"{league}: {str(data['_error'])[:120]}"}]
             if not any(l.get("slug") == league for l in data.get("leagues", [])) or not isinstance(data.get("events"), list):
                 return [{"sports_error": f"{league}: invalid scoreboard"}]
+            if len(data['events']) >= 100:
+                return [{'sports_error': f'{league}: scoreboard coverage incomplete'}]
             found = []
             for event in data.get("events", [])[:100]:
                 if parse_event(event, league, query, now):
@@ -230,8 +233,15 @@ def collect_scores(query: str, fetch, now: datetime | None = None) -> list[dict]
                         {"homeAway": t["homeAway"], "score": t.get("score"), "team": _team_source(t)} for t in c["competitors"]]}
                     found.append({"sports": True, "league": league, "event": {"id": event["id"], "competitions": [comp]},
                                   "fetched_at": now.isoformat()})
+                else:
+                    # A malformed matching game is a lookup failure, not evidence
+                    # that there is no game for the requested date.
+                    comp = event['competitions'][0]
+                    if (_time(comp['date']).astimezone(now.tzinfo).date() == day
+                            and any(matches(_team(t), query) for t in comp['competitors'])):
+                        return [{'sports_error': f'{league}: matching game could not be validated'}]
             return found
-        except (KeyError, TypeError, ValueError, OSError, AttributeError) as exc:
+        except (KeyError, IndexError, TypeError, ValueError, OSError, AttributeError) as exc:
             return [{"sports_error": f"{league}: {type(exc).__name__}"}]
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
         groups = list(pool.map(collect, targets))
@@ -248,6 +258,17 @@ def collect_scores(query: str, fetch, now: datetime | None = None) -> list[dict]
         unique[key] = page
     if len(unique) > 3:
         return [{"sports_error": "too many matching games; specify league and opponent"}]
+    if not unique:
+        if not teams:
+            from bot.sports_details import resolve_teams
+            teams, errors = resolve_teams(query, fetch, require_id=False)
+            if errors:
+                return errors[:3]
+        if len(teams) == 1:
+            league, team = teams[0]
+            return [{'sports_no_match': True, 'league': league, 'team': team,
+                     'date': day.isoformat(), 'fetched_at': now.isoformat()}]
+        return [{'sports_clarify': True}]
     return list(unique.values())
 
 
@@ -274,6 +295,22 @@ def score_answer(pages: list[dict], query: str, now: datetime, available: int):
         except (KeyError, TypeError, ValueError, AttributeError):
             continue
     if not candidates:
+        if len(pages) == 1 and pages[0].get('sports_no_match') is True:
+            packet = pages[0]
+            try:
+                team = _team({'team': packet['team']})
+                day = requested_date(query, now)
+                if (packet['league'] in selected_leagues(query) and matches(team, query)
+                        and packet['date'] == day.isoformat()
+                        and -5 <= (now - _time(packet['fetched_at'])).total_seconds() <= MAX_AGE_S):
+                    answer = f"No matching {team['short']} game found for {day:%m/%d}. Try a game date or ask for their next game."
+                    if len(answer) <= available:
+                        return answer, {'league': packet['league'], 'fetched_at': packet['fetched_at'],
+                                        'lookup_result': 'no-matching-game',
+                                        'url': f"https://www.espn.com/{packet['league']}/scoreboard/_/date/{day:%Y%m%d}",
+                                        'team_context': {'team': team['display'], 'league': packet['league']}}
+            except (KeyError, TypeError, ValueError, AttributeError):
+                pass
         return UNAVAILABLE, None
     # Prefer matches to both named teams (opponent disambiguates city nicknames).
     best = max(sum(match_strength(t, query) for t in e["teams"]) for e, _ in candidates.values())

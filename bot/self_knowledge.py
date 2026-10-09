@@ -19,7 +19,9 @@ def runtime_reference(cfg):
             f'Bot name {cfg.bot_name}; model {cfg.model}; backend {cfg.backend}. '
             f'One reply has at most {cfg.reply_max_chars} characters including its addressee, '
             f'and must also fit the radio byte limit. Generation and lookup share {cfg.model_timeout_s:g} seconds. '
-            f'{p}help lists commands; {p}help web, {p}help voices, {p}help fun, {p}help privacy give details. '
+            f'{p}help shows examples; {p}help topics lists commands. Both ! and / prefixes work, as does plain help. '
+            f'Plain about or {p}about shows version/model and the README link if it fits; {p}about source gives the source link. '
+            'Reply-button conversations allow six answers, then one continuation notice; a plain message or a minute of quiet resets the limit. '
             f'Usage tips are {"enabled" if cfg.tips_enabled else "disabled"}; configured slots '
             f'{cfg.tips_morning_time} and {cfg.tips_evening_time} host local time, with quiet-channel deferral. '
             f'Voices: {", ".join(p+n for n in cfg.personas)}. '
@@ -41,6 +43,8 @@ def factual_self_reply(prompt, cfg, active_persona, remaining_s=None):
     q = ' '.join(prompt.lower().replace('’', "'").split())
     p = cfg.command_prefix
     from bot.sports_queries import has_team
+    if re.fullmatch(r'(?:where (?:is|does) (?:this bot|the bot|mesh potato|you)(?: run| live)?|what (?:do you|does this bot) run on)[?.!]*', q):
+        return 'I run on a computer connected to a MeshCore radio; the radio carries my messages.'
     if (re.search(r'\b(?:you|bot|mesh potato)\b', q)
             and re.search(r'\b(?:provide|provides|give|gives|support|supports)\b.*\b(?:live )?sports\b', q)
             and not has_team(q)):

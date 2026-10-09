@@ -21,7 +21,7 @@ async def test_help_selects_one_display_without_model_or_lookup(harness, topic):
     h.service.web.search = AsyncMock(side_effect=unexpected_lookup)
     assert await h.say(f"Alice: /help {topic}") is Decision.ANSWERED_HELP
     expected = {
-        "": "Help: /help web | /help voices | /help fun | /help privacy",
+        "": "Ask: weather | Pats record | Beltline traffic | write a poem. No commands needed. /help topics for commands.",
         "web": "Ask here; I'll search the web when needed. /web <question> requests a search. Everything runs on my computer; no setup needed on yours.",
         "voices": "/nice /serious /funny /snarky /marvin /pirate /haiku",
         "fun": "/roll 3 8: roll 3 eight-sided dice (default 2 six-sided); /magic8 <question>: yes/no. Daily fortunes: funny and sweet.",

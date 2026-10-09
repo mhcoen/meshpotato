@@ -145,19 +145,31 @@ async def test_rotation_persists_and_claim_survives_restart(harness, tmp_path):
     h.service._state_store.close()
 
 
-async def test_no_repeated_examples_until_catalog_exhausted(harness):
+async def test_morning_rotates_practical_topics_and_evening_uses_broad_pool(harness):
     h = harness(web_enabled=True)
     s, wall = scheduler(h)
-    for _ in range(len(TIPS)):
+    seen = {'weather': [], 'sports': [], 'traffic': [], 'evening': []}
+    pools = {topic: [key for key, _ in examples(h.cfg) if key.startswith(topic+'-')]
+             for topic in ('weather', 'sports', 'traffic')}
+    for day in range(42):
+        h.clock.advance(16*3600 if day else 61)
+        if day:
+            wall.advance(16*3600)
+        assert await s.fire(wall())
+        key = s.used[-1]
+        topic = ('weather', 'sports', 'traffic')[day % 3]
+        assert key.startswith(topic+'-')
+        if len(seen[topic]) < len(pools[topic]):
+            assert key not in seen[topic]
+        assert not seen[topic] or key != seen[topic][-1]
+        seen[topic].append(key)
         h.clock.advance(8*3600)
         wall.advance(8*3600)
         assert await s.fire(wall())
-    assert len(set(s.used)) == len(TIPS)
-    recent = s.used[-10:]
-    h.clock.advance(8*3600)
-    wall.advance(8*3600)
-    assert await s.fire(wall())
-    assert s.used[-1] not in recent
+        key = s.used[-1]
+        assert not key.startswith(('weather-', 'sports-', 'traffic-'))
+        assert key not in seen['evening']
+        seen['evening'].append(key)
 
 
 async def test_state_failure_blocks_tip_before_send(harness):

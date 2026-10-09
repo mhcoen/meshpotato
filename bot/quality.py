@@ -297,6 +297,13 @@ def reply_problem(body: str, prompt: str, same_sender: list[str], other_senders:
 
 def incomplete_request(body: str, prompt: str) -> bool:
     """Conservative checks for empty promises, not a general semantic oracle."""
+    if looks_like_question(prompt) and not re.fullmatch(r'(?:hello|hi|hey|ahoy)[!?. ]*', prompt.strip(), re.I):
+        if re.fullmatch(r'(?:hello|hi|hey|ahoy)(?: there| friend| mate| matey)?[!?. ]*', body.strip(), re.I):
+            return True
+    if (re.search(r'\b(?:unverified|unauthenticated) (?:bots?|senders?|users?)\b', body, re.I)
+            and re.search(r"\b(?:can't|cannot|refuse|not to|won't)\b", body, re.I)
+            and not re.search(r'\b(?:authenticat\w*|verif\w*|secur\w*|identity|identities)\b', prompt, re.I)):
+        return True
     if re.search(r'\b(?:poem|haiku|ode|joke|translate|translation)\b', prompt, re.I):
         # A string of introductions is still not the requested content. Strip
         # only complete preamble clauses; actual creative text must remain.

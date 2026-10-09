@@ -29,7 +29,7 @@ async def test_start_announces_name_and_version_once_without_model(harness, name
     h = harness(bot_name=name)
     await asyncio.gather(h.service.start(), h.service.start())
     await asyncio.wait_for(h.service._startup_announcement_task, 1)
-    assert h.sent == [(1, f"{display} v{__version__}, LLM: {h.cfg.model}, https://github.com/mhcoen/meshpotato Try /help.")]
+    assert h.sent == [(1, f"{display} v{__version__}: Ask about radio, science, jokes, or a poem. Try /help for examples.")]
     assert len(h.sent[0][1]) <= h.cfg.reply_max_chars
     assert len(f"{h.cfg.bot_name}: {h.sent[0][1]}".encode("utf-8")) <= 160
     assert h.backend.calls == []
@@ -67,7 +67,7 @@ async def test_start_announcement_waits_for_rate_token(harness, clock):
     assert h.sent == []
     clock.advance(15)
     await asyncio.wait_for(task, 1)
-    assert h.sent == [(1, f"MeshAI v{__version__}, LLM: {h.cfg.model}, https://github.com/mhcoen/meshpotato Try /help.")]
+    assert h.sent == [(1, f"MeshAI v{__version__}: Ask about radio, science, jokes, or a poem. Try /help for examples.")]
     await h.service.stop()
 
 
@@ -146,23 +146,23 @@ async def test_failed_start_has_no_announcement(harness):
 
 
 @pytest.mark.parametrize("backend,model", [("ollama", "gemma3:12b"), ("openai", "local-model")])
-async def test_start_announces_configured_model_for_either_backend(clock, backend, model):
+async def test_start_introduces_capabilities_for_either_backend(clock, backend, model):
     h = Harness(make_config(backend=backend, model=model), FakeBackend(), clock)
     await h.service.start()
     await asyncio.wait_for(h.service._startup_announcement_task, 1)
-    assert h.sent == [(1, f"MeshAI v{__version__}, LLM: {model}, https://github.com/mhcoen/meshpotato Try /help.")]
+    assert h.sent == [(1, f"MeshAI v{__version__}: Ask about radio, science, jokes, or a poem. Try /help for examples.")]
     assert h.backend.calls == []
     await h.service.stop()
 
 
 @pytest.mark.parametrize("model", ["model" * 40, "caf\u00e9", "model\nname"])
-async def test_invalid_startup_identification_is_skipped_without_truncation(harness, model):
+async def test_unprintable_or_long_model_name_does_not_break_introduction(harness, model):
     h = harness(model=model)
     await h.service.start()
     await asyncio.wait_for(h.service._startup_announcement_task, 1)
-    assert h.sent == [] and h.backend.calls == []
-    assert h.limiter.snapshot()["global_tokens"] == 1
-    assert any(r["event"] == "announce_failed" and r["what"] == "startup" for r in h.records)
+    assert len(h.sent) == 1 and h.backend.calls == []
+    assert "Try /help for examples." in h.sent[0][1]
+    assert model not in h.sent[0][1]
     await h.service.stop()
 
 
@@ -172,20 +172,17 @@ async def test_startup_help_hint_uses_configured_prefixes(harness):
         await h.service.start()
         await asyncio.wait_for(h.service._startup_announcement_task, 1)
         assert len(h.sent) == 1
-        assert h.sent[0][1].endswith(" Try !ai !help.")
+        assert h.sent[0][1].endswith(" Try !ai !help for examples.")
     finally:
         await h.service.stop()
 
 
-async def test_startup_omits_hint_if_only_identification_fits(harness):
-    base = f"MeshAI v{__version__}, LLM: , https://github.com/mhcoen/meshpotato"
-    model = "m" * (150 - len(base))
-    h = harness(model=model)
+async def test_startup_advertises_enabled_live_topics(harness):
+    h = harness(web_enabled=True)
     try:
         await h.service.start()
         await asyncio.wait_for(h.service._startup_announcement_task, 1)
-        assert h.sent == [(1, f"MeshAI v{__version__}, LLM: {model}, https://github.com/mhcoen/meshpotato")]
-        assert len(h.sent[0][1]) == h.cfg.reply_max_chars
+        assert "weather, sports, traffic" in h.sent[0][1]
         assert len(f"MeshAI: {h.sent[0][1]}".encode()) <= 160
     finally:
         await h.service.stop()

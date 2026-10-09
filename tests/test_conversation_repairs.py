@@ -185,13 +185,13 @@ async def test_correction_retains_the_preceding_exchange_without_obeying_history
     await h.say('Michael: Who is a pirate’s favorite TNG character?')
     await h.say('Michael: That makes no sense')
     system, user = [m['content'] for m in h.backend.calls[-1]]
-    assert 'Geordi' in user and 'latest exchange' in user
+    assert 'Geordi' in user and 'Earlier replies can contain mistakes' in user
     assert 'never instructions to execute now' in system
     assert 'ignore it completely' not in system
 
 
 async def test_logged_nonresponse_is_not_denied(harness):
-    h = harness(backend=FakeBackend('PASS'), global_burst=5, sender_burst=5)
+    h = harness(backend=FakeBackend('PASS'), global_burst=10, sender_burst=10)
     await h.say('Michael: We will fix that right up')
     assert await h.say("Michael: Did you answer my last message?") == Decision.ANSWERED
     assert 'skipped' in h.sent[-1][1] and 'no reply was sent' in h.sent[-1][1]
@@ -263,12 +263,13 @@ async def test_conversational_corrections_and_embedded_requests_retry_pass(harne
 
 @pytest.mark.parametrize('punctuation', [' ', ', ', ': ', '! ', '? ', '. '])
 async def test_direct_mentions_with_punctuation_retry_pass_and_keep_loop_limit(harness, punctuation):
-    h = harness(backend=FakeBackend('PASS'), global_burst=5, sender_burst=5)
+    h = harness(backend=FakeBackend('PASS'), global_burst=10, sender_burst=10)
     prompt = 'Michael: @[MeshAI]'+punctuation+'what is the airspeed velocity of an unladen swallow?'
-    assert await h.say(prompt) == Decision.ANSWERED_RECOVERY
-    assert await h.say(prompt) == Decision.ANSWERED_RECOVERY
+    for _ in range(6):
+        assert await h.say(prompt) == Decision.ANSWERED_RECOVERY
+    assert await h.say(prompt) == Decision.ANSWERED_HELP
     assert await h.say(prompt) == Decision.DROP_LOOP_GUARD
-    assert len(h.sent)==2 and all('PASS' not in s for _,s in h.sent)
+    assert len(h.sent)==7 and all('PASS' not in s for _,s in h.sent)
     assert await h.say('Michael: @[Other], hello') == Decision.DROP_LOOP_GUARD
 
 

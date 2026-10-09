@@ -5,7 +5,7 @@ import asyncio
 import random
 from datetime import datetime, timedelta
 
-from bot.fortune import next_fire
+from bot.fortune import next_fire, parse_hhmm
 from bot.storage import StateError
 
 # Stable identifiers let rotation survive edits, upgrades, and restarts. These
@@ -168,16 +168,32 @@ class UsageTipScheduler:
             while eligible():
                 if self.service.usage_tip_ready():
                     choices = examples(cfg)
+                    practical = [tip for tip in choices if tip[0].startswith(('weather-', 'sports-', 'traffic-'))]
+                    broad = [tip for tip in choices if tip not in practical]
+                    evening_hour, evening_minute = parse_hhmm(cfg.tips_evening_time)
+                    morning_slot = slot.hour * 60 + slot.minute < evening_hour * 60 + evening_minute
+                    if morning_slot and practical:
+                        # Rotate the three useful topics as well as their examples.
+                        topics = [topic for topic in ('weather', 'sports', 'traffic')
+                                  if any(key.startswith(topic + '-') for key, _ in practical)]
+                        last = next((key.split('-')[0] for key in reversed(self.used)
+                                     if key.split('-')[0] in topics), None)
+                        topic = topics[(topics.index(last) + 1) % len(topics)] if last else topics[0]
+                        choices = [tip for tip in practical if tip[0].startswith(topic + '-')]
+                    else:
+                        choices = broad or choices
                     unused = [tip for tip in choices if tip[0] not in self.used]
                     if not unused and choices:
-                        recent = self.used[-min(10, len(choices)-1):] if len(choices) > 1 else []
+                        pool_ids = {key for key, _ in choices}
+                        used_in_pool = [key for key in self.used if key in pool_ids]
+                        recent = used_in_pool[-min(10, len(choices)-1):] if len(choices) > 1 else []
                         unused = [tip for tip in choices if tip[0] not in recent]
-                        self.used = recent
+                        self.used = [key for key in self.used if key not in pool_ids or key in recent]
                     if not unused:
                         self.log.emit('tip_skipped', reason='no-fitting-examples')
                         return False
                     identifier, text = self._rng.choice(unused)
-                    self.used = (self.used + [identifier])[-len(TIPS):]
+                    self.used = (self.used + [identifier])[-128:]
                     self._save()  # Never repeat a possibly delivered example after a send error.
                     outcome = await self.service.post_usage_tip(text, eligible)
                     self.log.emit('tip_posted' if outcome == 'sent' else 'tip_skipped',

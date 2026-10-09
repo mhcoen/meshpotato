@@ -24,7 +24,7 @@ async def test_capability_questions_use_correct_facts_without_lookup(harness,ena
     h=harness(web_enabled=enabled)
     h.service.web.search=AsyncMock(side_effect=AssertionError('capability question is not a game request'))
     assert not needs_web(question) and sports_kind(question) is None
-    assert await h.say('Ckemtp: '+question) is Decision.ANSWERED
+    assert await h.say('Ckemtp: '+question) is (Decision.ANSWERED_HELP if question == 'What can you do?' else Decision.ANSWERED)
     system=h.service._mechanics()
     assert not h.backend.calls
     if enabled:

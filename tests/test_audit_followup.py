@@ -79,13 +79,14 @@ def test_detector_failure_also_prevents_configuration_startup(monkeypatch):
 
 
 @pytest.mark.parametrize("trigger", ["", "!ai "])
-async def test_five_round_peer_exchange_stops_after_two_replies(harness, trigger):
-    backend = FakeBackend(replies=[f"The answer is {i}." for i in range(5)])
+async def test_direct_exchange_gives_six_answers_guidance_then_stops(harness, trigger):
+    backend = FakeBackend(replies=[f"The answer is {i}." for i in range(10)])
     h = harness(backend=backend, trigger_prefix=trigger, global_burst=10, sender_burst=10)
-    outcomes = [await h.say(f"PeerBot: @[MeshAI] What about question {i}?") for i in range(5)]
-    assert outcomes[:2] == [Decision.ANSWERED] * 2
-    assert outcomes[2:] == [Decision.DROP_LOOP_GUARD] * 3
-    assert len(h.sent) == len(backend.calls) == 2
+    outcomes = [await h.say(f"PeerBot: @[MeshAI] What about question {i}?") for i in range(9)]
+    assert outcomes[:6] == [Decision.ANSWERED] * 6
+    assert outcomes[6] is Decision.ANSWERED_HELP
+    assert outcomes[7:] == [Decision.DROP_LOOP_GUARD] * 2
+    assert len(h.sent) == 7 and len(backend.calls) == 6
     assert h.inbound_records()[-1]["reason"] == "direct-reply-limit"
     assert await h.say("Alice: @[MeshAI] Hello?") is Decision.ANSWERED
     await h.say("PeerBot: thanks")  # A plain line resets only this sender's exchange.
@@ -98,13 +99,14 @@ async def test_queued_direct_replies_cannot_bypass_send_limit(harness):
     h.service.queue_tick_s = 0.001
     try:
         results = await asyncio.wait_for(asyncio.gather(*[
-            h.say(f"PeerBot: @[MeshAI] What is {i} plus one?") for i in range(5)
+            h.say(f"PeerBot: @[MeshAI] What is {i} plus one?") for i in range(9)
         ]), 2)
-        assert results.count(Decision.ANSWERED) == 2
-        assert results.count(Decision.DROP_LOOP_GUARD) == 3
-        assert len(h.sent) == 2
-        assert len(h.backend.calls) == 2
-        assert h.limiter.snapshot()["global_tokens"] == 8
+        assert results.count(Decision.ANSWERED) == 6
+        assert results.count(Decision.ANSWERED_HELP) == 1
+        assert results.count(Decision.DROP_LOOP_GUARD) == 2
+        assert len(h.sent) == 7
+        assert len(h.backend.calls) == 6
+        assert h.limiter.snapshot()["global_tokens"] == 3
     finally:
         await h.service.stop()
 

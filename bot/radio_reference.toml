@@ -17,7 +17,7 @@ reviewed = "2026-09-07"
 
 [[reference]]
 title = "MeshCore duplicate suppression"
-keywords = ["duplicate", "duplicates", "checksum", "checksums", "message hash", "packet hash", "delayed bounce", "message ids", "hash cache"]
+keywords = ["duplicate", "duplicates", "checksum", "checksums", "message hash", "packet hash", "delayed bounce", "message ids", "hash cache", "hash", "hashes"]
 text = "MeshCore's SimpleMeshTables retains and compares packet hashes to suppress duplicates. Its default storage is a bounded circular cache, not a guaranteed 24-hour record. Old entries can be displaced; exact behavior depends on firmware. A checksum detects corruption, while duplicate recognition uses packet identity. An hour-delayed message alone cannot identify the cause: client replay, cache eviction, restarts or forwarding behavior need packet and device evidence."
 source = "https://github.com/meshcore-dev/MeshCore/blob/main/src/helpers/SimpleMeshTables.h"
 reviewed = "2026-10-08"

@@ -108,7 +108,19 @@ BUILTIN_PERSONAS: dict[str, str] = {
 
 def parse_command(prompt: str, prefix: str) -> str | None:
     """Return the lower-cased command word if ``prompt`` is a command, else None."""
-    if not prefix or not prompt.startswith(prefix):
-        return None
-    word = prompt[len(prefix):].strip().split(" ", 1)[0].lower()
-    return word or None
+    return command_parts(prompt, prefix)[0]
+
+
+def command_parts(prompt: str, prefix: str) -> tuple[str | None, str]:
+    for candidate in sorted({prefix, '!', '/'} - {''}, key=len, reverse=True):
+        if prompt.startswith(candidate):
+            parts = prompt[len(candidate):].split(None, 1)
+            return (parts[0].lower(), parts[1].strip() if len(parts) > 1 else '') if parts else (None, '')
+    if re.fullmatch(r'about[.!?]*', prompt, re.I):
+        return 'about', ''
+    match = re.fullmatch(r'help(?:\s+(\w+))?[.!?]*', prompt, re.I)
+    if match:
+        return HELP_COMMAND, (match[1] or '').lower()
+    if re.fullmatch(r'(?:what can you do|how do i use (?:you|this bot)|how does this bot work)[.!?]*', prompt, re.I):
+        return HELP_COMMAND, ''
+    return None, ''

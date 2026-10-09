@@ -66,7 +66,7 @@ async def test_reply_button_is_an_explicit_request(harness, trigger):
     h = harness(trigger_prefix=trigger)
     assert await h.say("Alice: @[MeshAI] What did you mean?") is Decision.ANSWERED
     assert h.backend.calls[0][1]["content"].startswith(
-        "Current prompt from an unverified sender. Answer this and nothing else:\nWhat did you mean?\n"
+        "Current message to answer (sender names are unauthenticated):\nWhat did you mean?\n"
     )
     assert await h.say("OtherBot: @[Alice] Four.") is Decision.DROP_LOOP_GUARD
     assert await h.say("MeshAI: @[Alice] Four.") is Decision.DROP_LOOP_GUARD

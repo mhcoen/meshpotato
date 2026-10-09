@@ -78,17 +78,24 @@ channel utilisation, and every message with the bot's decision on it
   as prior chat turns
 - Terminal monitor with a live message log, rate limiter state, channel
   utilisation, and counters; JSON lines log; headless mode for services
-- Announces its name, version, LLM, repository link, and a help hint (when it fits) once at startup; clean shutdown on SIGINT
+- Introduces its name, version, capabilities, and help once at startup; clean shutdown on SIGINT
   and SIGTERM
 - Tests that need no radio, no model, and no network
 
 ## Channel commands
 
-Just send a message to chat; no command is needed. With the default presets:
+Just send a message to chat; no command is needed. Both `!` and `/` commands work,
+including `!help`, `/help`, or plain `help`. "What can you do?" also shows examples.
+A configured custom command prefix works too. With the default presets:
 
 | Command | What it does |
 | --- | --- |
-| `/help` | Lists help topics; unknown topics return this index |
+| `!help` or `/help` | Shows example questions, including weather, sports and traffic when enabled |
+| `!help topics` or `/help topics` | Lists command help topics and `about` |
+| `about`, `!about` or `/about` | Shows version, configured model and host/radio arrangement, plus the GitHub README link when the complete reply fits |
+| `!about source` or `/about source` | Gives the source repository link |
+| `!weather` or `/weather` | Gets the daily weather; `!wx` and `/wx` also work, with an optional location |
+| `!traffic` or `/traffic` | Requests traffic; Beltline questions use the prepared cache when enabled |
 | `/help web` | Automatic searches and `/web` usage; the bot handles the internet connection and search |
 | `/help voices` | Lists the configured voice commands, without descriptions |
 | `/help fun` | Dice and Magic 8 Ball examples, plus daily fortunes when enabled |
@@ -116,14 +123,16 @@ configuration, command details, and limits.
 The bot offers two short "Potato tip" examples per day, including **weather,
 sports, and traffic**, plus radio questions, poems, jokes, translations, games,
 and help. These are reviewed examples of what to ask; conversational answers
-still come from the model or live-data handlers.
+still come from the model or live-data handlers. Morning tips rotate through
+weather, sports and traffic; evening tips cover the broader set of uses. If web
+lookup is disabled, both slots use the non-web examples.
 
 Defaults are **10:00 a.m. and 6:00 p.m. in the host computer's local timezone**,
 with a random offset of up to five minutes. Each tip is one packet, needs no
 model call or web lookup, and uses the normal global/sender airtime limits. It
 waits for 60 seconds without activity on the served channel, yields to active
 or queued requests, and only sends when adaptive utilization permits full rate.
-If no quiet opportunity appears within 15 minutes, that tip is skipped. A
+If no quiet opportunity appears within 15 minutes, that tip is skipped. An
 expired slot is never caught up after startup or sleep, and a radio attempt is
 never retried when delivery is uncertain. The morning fortune remains separate.
 
@@ -135,8 +144,8 @@ and used examples across restarts; disabling `state_db` makes that memory last
 only for the current process. Tip state is separate from personal conversation
 memory. State-write failures skip the tip instead of risking a duplicate.
 
-The rotation uses every eligible example before recycling, then avoids the last
-ten examples. Web-dependent examples are omitted when web lookup is disabled;
+Each topic pool uses its eligible examples before recycling, then avoids up to
+ten recent examples in that pool (always leaving at least one available). Web-dependent examples are omitted when web lookup is disabled;
 command and trigger examples reflect the configured prefixes. Examples that
 cannot fit a custom radio identity are omitted. Data-dependent questions may
 return a temporary-unavailability notice when their sources are unavailable.
@@ -231,9 +240,16 @@ everyone on the channel, not just the person who requested them.
 You can also use your app's reply button to reply to Mesh Potato; a leading
 `@[Mesh Potato] ` mention addresses it directly, even on a channel with a trigger
 prefix. To prevent two bots from replying to each other indefinitely, the bot
-answers at most two consecutive direct-mention requests from one sender. Send
-a plain message to continue; on a channel with a trigger, include that trigger.
+answers six consecutive direct-mention requests from one sender, then sends one
+short notice: "Loop limit: send a new message or wait a minute to continue."
+Further direct mentions are suppressed until that sender pauses for a minute
+or sends a plain message. On a channel with a trigger, include that trigger.
+The same limit covers command and live-data replies, including queued requests.
 An unknown command receives one short help hint.
+
+When complete, validated scoreboards contain no matching game for a team and
+date, the bot says so and suggests specifying a game date or asking for the next
+game. A failed or incomplete lookup still gets a temporary-unavailability notice.
 
 Questions about sports scores, current prices, weather (including `wx`), road traffic, opening hours, news, and similar
 changing facts trigger a web lookup. Use `/web your question` when you want to
@@ -703,11 +719,11 @@ This controls your user's processes on this computer, not bots on other hosts or
 under other accounts. Disable any external service that automatically restarts
 the bot if you want it to stay stopped.
 
-After a successful start, the bot announces its name, package version, configured
-LLM, and repository link in one message, for example:
+After a successful start, the bot introduces its name, package version,
+capabilities, and help in one message, for example:
 
 ```text
-Mesh Potato v1.8.5, LLM: qwen3:30b-a3b-instruct-2507-q4_K_M, https://github.com/mhcoen/meshpotato Try /help.
+Mesh Potato v2.0.0: Ask about weather, sports, traffic, radio, or a poem. Try /help for examples.
 ```
 
 The package version is also available locally with `meshpotato --version`.
@@ -715,8 +731,9 @@ This uses the normal ASCII/length checks, injection gate, and rate limits, with
 the initial reply delay. It defers behind queued replies and congestion for up
 to ten minutes, then skips the announcement if still blocked. It does not use
 the model or repeat on reconnect; a failed send is logged, not retried.
-If the configured name/model makes the line too long or the model identifier is
-not printable ASCII, it is logged and skipped without truncation; the bot still starts.
+If the configured name or prefixes make the introduction too long, it uses a
+shorter help hint. If even that cannot fit, it logs and skips the announcement;
+the bot still starts. Use `about` for the model and README link.
 
 Then send a message on the channel from your phone. The bot answers every
 message on the channel by default. To make it answer only messages that
@@ -1055,8 +1072,8 @@ added and are activated only by a channel command. Personal jabs are refused in
 every voice, including comparisons that praise the bot while mocking the asker
 or their equipment.
 
-Anyone on the channel can switch with a command, the command prefix (`/` by
-default) followed by a preset name. The full [command list](#channel-commands)
+Anyone on the channel can switch with a command: `!` or `/` (or the configured
+command prefix) followed by a preset name. The full [command list](#channel-commands)
 is near the top of this README.
 
 A switched personality reverts to the default after `persona_timeout_min`
@@ -1067,9 +1084,9 @@ but the new voice can still echo the old one for a message or two. Personality
 commands select configured preset text; they cannot supply arbitrary persona
 instructions from the channel. Ordinary questions still reach the model.
 An unknown command receives one short `/help` hint.
-`/help` returns a short index: `Help: /help web | /help voices | /help fun | /help privacy`.
+`/help` starts with example questions; `/help topics` lists command help and `about`.
 Request one topic, for example `/help fun`, to see its help. Topic names are
-case-insensitive; an unknown topic returns the index. Each request sends one
+case-insensitive; an unknown topic returns the examples. Each request sends one
 public message with no sender mention, using one global and per-sender rate-limit
 token and the usual airtime checks. Help uses no model or web calls.
 The displays follow the configuration: voices list only available presets,

@@ -238,7 +238,8 @@ class Config:
         for name, text in self.personas.items():
             if not NAME_RE.fullmatch(name):
                 errors.append(f"persona name {name!r} must be lowercase letters, digits, underscores, at most 16 chars")
-            if name in (HELP_COMMAND, RESET_COMMAND, FORGET_COMMAND, ROLL_COMMAND, MAGIC8_COMMAND, WEB_COMMAND):
+            if name in (HELP_COMMAND, RESET_COMMAND, FORGET_COMMAND, ROLL_COMMAND, MAGIC8_COMMAND, WEB_COMMAND,
+                        'about', 'weather', 'wx', 'traffic'):
                 errors.append(f"persona name {name!r} collides with a command")
             if not isinstance(text, str) or not text.strip():
                 errors.append(f"persona {name!r} must have non-empty text")
@@ -303,7 +304,10 @@ class Config:
     @property
     def help_message(self) -> str:
         prefix = self.trigger_prefix + self.command_prefix
-        return "Help: " + " | ".join(f"{prefix}help {topic}" for topic in self.help_topics)
+        examples = ('weather | Pats record | Beltline traffic | write a poem' if self.web_enabled
+                    else 'write a poem | explain SNR | tell me a joke')
+        instruction = f' Start with {self.trigger_prefix.strip()}.' if self.trigger_prefix else ' No commands needed.'
+        return f'Ask: {examples}.{instruction} {prefix}help topics for commands.'
 
     @property
     def help_topics(self) -> dict[str, str]:
@@ -314,6 +318,7 @@ class Config:
         if self.fortune_enabled:
             fun += " Daily fortunes: funny and sweet."
         return {
+            "topics": "Help: " + " | ".join(f"{prefix}help {topic}" for topic in ('web', 'voices', 'fun', 'privacy')) + f" | {prefix}about",
             "web": web,
             "voices": " ".join(f"{prefix}{name}" for name in self.personas),
             "fun": fun,

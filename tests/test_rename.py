@@ -81,8 +81,8 @@ async def test_new_identity_startup_help_serious_roll_and_loop_guard(clock, tmp_
     try:
         await h.service.start()
         await asyncio.wait_for(h.service._startup_announcement_task, 1)
-        assert h.sent[0][1].startswith(f"Mesh Potato v{__version__}, LLM: ")
-        assert h.sent[0][1].endswith(" Try /help.")
+        assert h.sent[0][1].startswith(f"Mesh Potato v{__version__}: Ask about ")
+        assert h.sent[0][1].endswith(" Try /help for examples.")
         assert await h.say("Alice: /help") is Decision.ANSWERED_HELP
         assert [text for _, text in h.sent[1:]] == [cfg.help_message]
         assert await h.say("Alice: /serious") is Decision.PERSONA_SWITCHED

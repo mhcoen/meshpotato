@@ -19,7 +19,8 @@ Reports cover University Avenue to I-39/90, show their source age, and expire
 after ten minutes. Missing or stale traffic gets a temporary-unavailability notice.
 
 When enabled, two short usage tips per day show example questions, including
-weather, sports and traffic. They yield to conversations and skip busy periods.
+weather, sports and traffic in the morning, broader examples in the evening.
+They yield to conversations and skip busy periods.
 
 Ordinary answers occupy one short radio message. A user can ask a follow-up for
 more detail; the bot does not automatically split an answer into multiple packets.

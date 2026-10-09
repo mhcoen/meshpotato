@@ -127,3 +127,21 @@ def select_references(prompt: str, references: tuple[Reference, ...]) -> str:
             kept.append(passage)
             size += added
     return "\n\n".join(kept)
+
+
+def reference_topic(prompt: str, earlier_prompts: list[str], references: tuple[Reference, ...]) -> str:
+    """Resolve a short referential follow-up using only this sender's recent topic.
+
+    This string selects fixed, bundled facts. Historical requests are never executed
+    or sent to a web service, and an explicit new topic takes precedence.
+    """
+    if asks_about_radio(prompt, references):
+        return prompt
+    if len(prompt) > 240 or not re.search(
+        r"\b(?:that|it|them|those)\b|^(?:but |and |so )?(?:why|please explain|explain|yes|no)[?.! ]*$", prompt, re.I
+    ):
+        return prompt
+    for earlier in reversed(earlier_prompts[-2:]):
+        if asks_about_radio(earlier, references):
+            return earlier
+    return prompt

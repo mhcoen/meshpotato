@@ -41,13 +41,13 @@ from bot.dice import parse_dice
 from bot.guard import InjectionGate, Verdict
 from bot.history import History, HistoryEntry
 from bot.jsonlog import EventLog
-from bot.knowledge import Reference, asks_about_radio, checked_references, select_references
+from bot.knowledge import Reference, asks_about_radio, checked_references, reference_topic, select_references
 from bot.memory import PersonMemory
 from bot.magic8 import ANSWERS as MAGIC8_ANSWERS
 from bot.sports import sports_answer, sports_failure, MAX_AGE_S, local_now as sports_now
 from bot.sports_queries import is_sports_query, with_team_context, sports_kind, has_team
 from bot.parse import extract_prompt, parse_channel_text
-from bot.personas import BUILTIN_PERSONAS, FORGET_COMMAND, HELP_COMMAND, LORA_FACTS, MAGIC8_COMMAND, RESET_COMMAND, ROLL_COMMAND, WEB_COMMAND, parse_command, radio_facts
+from bot.personas import BUILTIN_PERSONAS, FORGET_COMMAND, HELP_COMMAND, LORA_FACTS, MAGIC8_COMMAND, RESET_COMMAND, ROLL_COMMAND, WEB_COMMAND, command_parts, parse_command, radio_facts
 from bot.web import WebLookup, WebLookupError, needs_web, search_query, usable_sources, web_instructions, supported_answer, web_object, lookup_failure, UNVERIFIED, DISABLED, USAGE
 from bot.prompt import build_messages, build_user_message
 from bot.quality import Problem, is_pass, looks_like_question, nudge as quality_nudge, reply_problem, third_party_jab, personal_jab
@@ -62,6 +62,10 @@ from bot.storage import StateError, StateStore
 from bot.self_knowledge import runtime_reference, factual_self_reply, game_reply
 from bot.weather import weather_location, weather_answer, UNAVAILABLE as WEATHER_UNAVAILABLE
 from bot.recovery import recovery_messages
+
+
+DIRECT_REPLY_LIMIT = 6
+DIRECT_REPLY_RESET_S = 60
 
 
 class Decision(str, Enum):
@@ -153,6 +157,7 @@ class PendingReply:
     weather_expires_at: float | None = None
     recovery_context: list[dict[str, str]] | None = None
     recovery_entries: list[HistoryEntry] | None = None
+    recovery_radio_prompt: bool = False
 
 
 @dataclass
@@ -249,6 +254,7 @@ class BotService:
         self._backend_failures = 0
         self._backend_retry_at = 0.0
         self._direct_replies: OrderedDict[str, int] = OrderedDict()
+        self._direct_last_seen: dict[str, float] = {}
         self._sports_context: OrderedDict[str, tuple[dict, float]] = OrderedDict()
         self._outcomes: OrderedDict[str, deque[Activity]] = OrderedDict()
         self._activity_sequence = 0
@@ -368,17 +374,13 @@ class BotService:
     async def _announce_startup(self) -> None:
         try:
             name = plain_ascii(self.cfg.bot_name) or "Mesh Potato"
-            text = f"{name} v{__version__}, LLM: {self.cfg.model}, https://github.com/mhcoen/meshpotato"
-            with_help = text + f" Try {self.cfg.trigger_prefix}{self.cfg.command_prefix}help."
-            if (all(" " <= c <= "~" for c in with_help)
-                    and len(with_help) <= self.cfg.reply_max_chars
-                    and len(with_help.encode("utf-8")) <= self._reply_max_bytes):
-                text = with_help
-            # Do not rewrite a model identifier or truncate the repository URL.
-            if (any(not " " <= c <= "~" for c in text)
-                    or len(text) > self.cfg.reply_max_chars
-                    or len(text.encode("utf-8")) > self._reply_max_bytes):
-                self.log.emit("announce_failed", what="startup", reason="startup identification is not printable ASCII or exceeds the wire budget")
+            capabilities = 'weather, sports, traffic, radio, or a poem' if self.cfg.web_enabled else 'radio, science, jokes, or a poem'
+            prefix = self.cfg.trigger_prefix + self.cfg.command_prefix
+            text = f'{name} v{__version__}: Ask about {capabilities}. Try {prefix}help for examples.'
+            if len(text) > self.cfg.reply_max_chars or len(text.encode()) > self._reply_max_bytes:
+                text = f'{name} is here! Try {prefix}help for examples.'
+            if len(text) > self.cfg.reply_max_chars or len(text.encode()) > self._reply_max_bytes:
+                self.log.emit('announce_failed', what='startup', reason='introduction exceeds wire budget')
                 return
             # Allow any fetched messages/repeater traffic to settle first. This
             # is background work so waiting never holds up startup or ingestion.
@@ -673,12 +675,26 @@ class BotService:
         address = re.match(r'^@\[' + re.escape(cfg.bot_name) + r'\](?=$|[\s,:.!?])', body, re.I)
         addressed_to_us = address is not None
         if addressed_to_us:
-            if self._direct_replies.get(parsed.sender, 0) >= 2:
+            last = self._direct_last_seen.get(parsed.sender)
+            if last is not None and received_at - last >= DIRECT_REPLY_RESET_S:
+                self._direct_replies.pop(parsed.sender, None)
+            self._direct_last_seen.pop(parsed.sender, None)
+            self._direct_last_seen[parsed.sender] = received_at
+            # Bound sender bookkeeping even before successful transmissions.
+            if len(self._direct_last_seen) > cfg.person_memory_people:
+                oldest = next(iter(self._direct_last_seen))
+                self._direct_last_seen.pop(oldest, None)
+                self._direct_replies.pop(oldest, None)
+            if self._direct_replies.get(parsed.sender, 0) >= DIRECT_REPLY_LIMIT + 1:
                 return self._record(parsed, path_len, Decision.DROP_LOOP_GUARD, reason="direct-reply-limit")
             self._requests[asyncio.current_task()].direct_reply = True
             body = body[address.end():]
             if not (cfg.trigger_prefix and body.lstrip().startswith(cfg.trigger_prefix)):
-                body = body.lstrip(',:.!?')
+                candidate = body.lstrip(',:.? ')
+                command = command_parts(candidate, cfg.command_prefix)[0]
+                known = set(cfg.personas) | {HELP_COMMAND, RESET_COMMAND, FORGET_COMMAND,
+                    ROLL_COMMAND, MAGIC8_COMMAND, WEB_COMMAND, 'about', 'weather', 'wx', 'traffic'}
+                body = candidate if command in known else body.lstrip(',:.!?')
             body = body.strip()
             if cfg.trigger_prefix and body.startswith(cfg.trigger_prefix):
                 body = body[len(cfg.trigger_prefix):].strip()
@@ -686,6 +702,7 @@ class BotService:
             return self._record(parsed, path_len, Decision.DROP_LOOP_GUARD, reason="reply-prefix")
         else:
             self._direct_replies.pop(parsed.sender, None)
+            self._direct_last_seen.pop(parsed.sender, None)
 
         # 2. Trigger.
         prompt = extract_prompt(body, "" if addressed_to_us else cfg.trigger_prefix)
@@ -693,11 +710,16 @@ class BotService:
             return self._record(parsed, path_len, Decision.DROP_NO_TRIGGER)
 
         # 2b. Commands: a preset name switches the voice silently; help and reset transmit.
-        command = parse_command(prompt, cfg.command_prefix)
+        if addressed_to_us and self._direct_replies.get(parsed.sender, 0) >= DIRECT_REPLY_LIMIT:
+            return await self._direct_guidance(parsed, path_len, received_at)
+        command, arguments = command_parts(prompt, cfg.command_prefix)
+        if command in {'weather', 'wx', 'traffic'}:
+            prompt = ('weather' if command == 'wx' else command) + (' ' + arguments if arguments else '')
+            command = WEB_COMMAND
+            arguments = prompt
         explicit_web = command == WEB_COMMAND
         if command is not None:
             self._check(prompt, "prompt")
-            arguments = prompt[len(cfg.command_prefix):].strip().partition(" ")[2]
             if explicit_web:
                 prompt = arguments
             else:
@@ -740,9 +762,10 @@ class BotService:
             entries, self.memory.rounds_for(parsed.sender), parsed.sender, cfg.bot_name,
             cfg.transcript_max_chars, cfg.person_memory_max_chars,
         )
-        reference = select_references(prompt, self.references)
+        topic = reference_topic(prompt, [entry.text for entry in entries if entry.sender == parsed.sender and not entry.flagged][-2:], self.references)
+        reference = select_references(topic, self.references)
         reception = reception_context(payload) if asks_about_reception(prompt) else ""
-        radio_prompt = bool(reception) or asks_about_radio(prompt, self.references)
+        radio_prompt = bool(reception) or asks_about_radio(topic, self.references)
         context_verdict = self.gate.check(build_user_message(transcript, prompt, memory_block, reference, reception))
         if context_verdict.blocked:
             self.stats.injection_blocks += 1
@@ -760,6 +783,7 @@ class BotService:
         if available < max(len(cfg.apology), len(cfg.too_long_reply)):
             return self._record(parsed, path_len, Decision.DROP_EMPTY, reason="sender-name leaves no room for fixed replies")
         state = self._requests[asyncio.current_task()]
+        state.recovery_radio_prompt = radio_prompt
         traffic = (beltline_direction(prompt, cfg.web_location)
                    if cfg.web_enabled and cfg.traffic_enabled and self.traffic is not None else None)
         state.program_reply = '' if explicit_web else self._program_reply(prompt, parsed.sender)
@@ -780,8 +804,8 @@ class BotService:
         if self._clock() < self._backend_retry_at and not state.program_reply and not (cfg.web_enabled and (sports or weather)):
             return self._record(parsed, path_len, Decision.DROP_MODEL_UNAVAILABLE, reason="model cooldown")
         state = self._requests[asyncio.current_task()]
-        if state.direct_reply and self._direct_replies.get(parsed.sender, 0) >= 2:
-            return self._record(parsed, path_len, Decision.DROP_LOOP_GUARD, reason="direct-reply-limit")
+        if state.direct_reply and self._direct_replies.get(parsed.sender, 0) >= DIRECT_REPLY_LIMIT:
+            return await self._direct_guidance(parsed, path_len, received_at, admitted=True)
         receipt_ids = {id(entry) for entry in history_at_receipt}
         entries = entries + [entry for entry in self.history.entries()
                              if entry.sender == cfg.bot_name and id(entry) not in receipt_ids]
@@ -1006,6 +1030,8 @@ class BotService:
 
     async def _answer_cached_traffic(self, parsed, path_len, prompt, received_at, direction):
         state = self._requests[asyncio.current_task()]
+        if state.direct_reply and self._direct_replies.get(parsed.sender, 0) >= DIRECT_REPLY_LIMIT:
+            return await self._direct_guidance(parsed, path_len, received_at, admitted=True)
         state.traffic_direction = direction
         available = reply_body_room(parsed.sender, self.cfg.reply_max_chars, self._reply_max_bytes)
         held_ms = await self._hold_for_quiet_channel(received_at)
@@ -1084,7 +1110,7 @@ class BotService:
                     self._check(candidate, 'reply')
                     rejected = self._reply_problem(candidate, prompt, parsed.sender,
                         self.memory.rounds_for(parsed.sender), state.recovery_entries or [],
-                        asks_about_radio(prompt, self.references))
+                        state.recovery_radio_prompt)
                     valid = (candidate.strip() and not is_pass(candidate) and not result.truncated
                              and rejected is None and not state.web_no_evidence
                              and (state.web_sources is None or citation is not None)
@@ -1114,7 +1140,7 @@ class BotService:
         latency_ms += max(0, round((self._clock() - started) * 1000, 1))
         self.stats.last_latency_ms = latency_ms
         self._check(text, 'recovery-reply')
-        if reply_problem(text, prompt, [], [], radio_prompt=False) is not None:
+        if reply_problem(text, prompt, [], [], radio_prompt=state.recovery_radio_prompt) is not None:
             return self._drop_bad_reply(parsed, path_len, problem, draft, latency_ms, retries, **extra)
         reply = compose_reply(parsed.sender, text, self.cfg.reply_max_chars, max_bytes=self._reply_max_bytes)
         if reply is None:
@@ -1549,8 +1575,51 @@ class BotService:
 
     # ------------------------------------------------------------------ personalities
 
+    async def _direct_guidance(self, parsed, path_len, received_at, admitted=False):
+        if self._direct_replies.get(parsed.sender, 0) >= DIRECT_REPLY_LIMIT + 1:
+            return self._record(parsed, path_len, Decision.DROP_LOOP_GUARD, reason='direct-reply-limit')
+        if not admitted:
+            limit = await self._wait_for_admission(parsed.sender, received_at)
+            if not limit.allowed:
+                return self._queue_drop(parsed, path_len, limit.reason)
+        text = 'Loop limit: send a new message or wait a minute to continue.'
+        reply = compose_reply(parsed.sender, text, self.cfg.reply_max_chars, max_bytes=self._reply_max_bytes)
+        if reply is None:
+            return self._record(parsed, path_len, Decision.DROP_EMPTY)
+        await self._hold_for_quiet_channel(received_at)
+        if await self._send(reply, mention_sender=parsed.sender):
+            self.stats.replies_sent += 1
+            return self._record(parsed, path_len, Decision.ANSWERED_HELP, reply=reply, reason='direct-reply-guidance')
+        return self._record(parsed, path_len, Decision.DROP_SEND_FAILED, reply=reply)
+
     async def _handle_command(self, parsed, path_len, command: str, received_at: float, arguments: str = "") -> Decision:
         cfg = self.cfg
+        if command == 'about':
+            readme_url = 'https://github.com/mhcoen/meshpotato/blob/main/README.md'
+            text = ("https://github.com/mhcoen/meshpotato" if arguments.lower() in {'source', 'code', 'github'}
+                    else f'v{__version__}. Model: {cfg.model}. Runs on a computer linked to a MeshCore radio.')
+            room = reply_body_room(parsed.sender, cfg.reply_max_chars, self._reply_max_bytes)
+            if len(text) > room or not text.isascii() or any(ord(c) < 32 for c in text):
+                text = f'v{__version__}. I run on a computer linked to a MeshCore radio. The model name does not fit here.'
+            if arguments.lower() not in {'source', 'code', 'github'}:
+                with_readme = f'v{__version__}. Model: {cfg.model}. Computer + MeshCore radio. {readme_url}'
+                if (all(' ' <= c <= '~' for c in with_readme)
+                        and compose_reply(parsed.sender, with_readme, cfg.reply_max_chars,
+                                          max_bytes=self._reply_max_bytes) is not None):
+                    text = with_readme
+            reply = compose_reply(parsed.sender, text, cfg.reply_max_chars, max_bytes=self._reply_max_bytes)
+            if reply is None:
+                return self._record(parsed, path_len, Decision.DROP_EMPTY)
+            limit = await self._wait_for_admission(parsed.sender, received_at)
+            if not limit.allowed:
+                return self._queue_drop(parsed, path_len, limit.reason)
+            if self._requests[asyncio.current_task()].direct_reply and self._direct_replies.get(parsed.sender, 0) >= DIRECT_REPLY_LIMIT:
+                return await self._direct_guidance(parsed, path_len, received_at, admitted=True)
+            await self._hold_for_quiet_channel(received_at)
+            sent = await self._send(reply, mention_sender=parsed.sender)
+            if sent:
+                self.stats.replies_sent += 1
+            return self._record(parsed, path_len, Decision.ANSWERED_HELP if sent else Decision.DROP_SEND_FAILED, reply=reply)
         if command in cfg.personas:
             self._switch_persona(command)
             return self._record(parsed, path_len, Decision.PERSONA_SWITCHED, persona=command)
@@ -1592,6 +1661,8 @@ class BotService:
         limit = await self._wait_for_admission(parsed.sender, received_at)
         if not limit.allowed:
             return self._queue_drop(parsed, path_len, limit.reason, command=command)
+        if self._requests[asyncio.current_task()].direct_reply and self._direct_replies.get(parsed.sender, 0) >= DIRECT_REPLY_LIMIT:
+            return await self._direct_guidance(parsed, path_len, received_at, admitted=True)
         held_ms = await self._hold_for_quiet_channel(received_at)
         if await self._send(reply, mention_sender=parsed.sender):
             self.stats.replies_sent += 1
@@ -1611,6 +1682,8 @@ class BotService:
         limit = await self._wait_for_admission(parsed.sender, received_at)
         if not limit.allowed:
             return self._queue_drop(parsed, path_len, limit.reason, command=command)
+        if self._requests[asyncio.current_task()].direct_reply and self._direct_replies.get(parsed.sender, 0) >= DIRECT_REPLY_LIMIT:
+            return await self._direct_guidance(parsed, path_len, received_at, admitted=True)
         await self._hold_for_quiet_channel(received_at)
         if not await self._send(reply):
             return self._record(parsed, path_len, Decision.DROP_SEND_FAILED,
@@ -1779,7 +1852,7 @@ class BotService:
         self._check(reply, "reply")
         if not state.reservation or not state.reservation.allowed:
             raise RuntimeError("transmission requires a limiter reservation")
-        if state.direct_reply and not state.direct_counted and self._direct_replies.get(state.sender, 0) >= 2:
+        if state.direct_reply and not state.direct_counted and self._direct_replies.get(state.sender, 0) >= DIRECT_REPLY_LIMIT + 1:
             raise ReplyLoopDetected()
         body = reply
         invalid_mention = False
@@ -1810,7 +1883,7 @@ class BotService:
             state.reservation.commit()
             self._last_channel_activity = self._clock()
             if state.direct_reply and not state.direct_counted:
-                state.direct_counted = True  # A two-page help response is one exchange.
+                state.direct_counted = True  # Count attempted sends, including ambiguous failures.
                 self._direct_replies[state.sender] = self._direct_replies.get(state.sender, 0) + 1
                 self._direct_replies.move_to_end(state.sender)
                 while len(self._direct_replies) > self.cfg.person_memory_people:
