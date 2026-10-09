@@ -9,6 +9,7 @@ any key may appear in any section.
 |---|---|---|
 | `port` | required | Serial device of the companion radio |
 | `channel_idx` | `1` | Channel slot on the radio to serve |
+| `announce_startup` | `true` | Broadcast an introduction on startup; `false` or CLI `--no-announce` skips it |
 | `bot_name` | `Mesh Potato` | Must equal the radio's node name |
 | `trigger_prefix` | `""` | Off by default, so every message is a prompt, except bare reactions and lines mentioning someone else, and the model may pass on remarks between other people; `"!ai "` answers only messages beginning with that exact text |
 | `reply_max_chars` | automatic | Omit to calculate 160 minus the UTF-8 byte length of `bot_name` minus 2 (147 for Mesh Potato). Optionally set a smaller character cap, including the exact-name mention; every reply is also checked in UTF-8 bytes. |

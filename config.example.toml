@@ -9,6 +9,7 @@ port = "/dev/cu.usbserial-0001"   # required; the MeshCore USB companion
 channel_idx = 1                   # must exist on the radio; the bot refuses to start otherwise
 
 [bot]
+announce_startup = true           # false skips the opening channel message; --no-announce overrides this
 bot_name = "Mesh Potato"               # MUST equal the radio's node name (loop guard depends on it)
 trigger_prefix = ""               # "" answers every message except reactions and lines meant for someone else; "!ai " for shared channels
 # Reply size is calculated automatically from the UTF-8 length of bot_name.
@@ -21,7 +22,7 @@ facts = "This mesh is in southern Wisconsin, centered on Madison, and runs the U
 default_persona = "nice"       # startup/reset always use nice; old values are migrated on load
 persona_timeout_min = 120         # a switched personality reverts to the default after this long
 persona_reset_message = "Back to the default personality."   # posted when it reverts
-command_prefix = "/"             # /help sends two pages; /<name> switches; /reset restores
+command_prefix = "/"             # /help shows examples; ! also works; /<name> switches; /reset restores
 
 [model]
 backend = "ollama"                # "ollama" or "openai" (any OpenAI-compatible /chat/completions)

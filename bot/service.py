@@ -367,9 +367,10 @@ class BotService:
         self._memory_task = asyncio.create_task(self._memory_gc(), name="memory-gc")
         if self._state_store is not None:
             self._state_task = asyncio.create_task(self._save_state_periodically(), name="state-save")
-        self._startup_announcement_task = asyncio.create_task(
-            self._announce_startup(), name="startup-announcement"
-        )
+        if self.cfg.announce_startup:
+            self._startup_announcement_task = asyncio.create_task(
+                self._announce_startup(), name="startup-announcement"
+            )
 
     async def _announce_startup(self) -> None:
         try:
@@ -1044,8 +1045,8 @@ class BotService:
         # _send rechecks freshness after any congestion wait; record what actually left.
         reply = compose_reply(parsed.sender, state.program_reply, self.cfg.reply_max_chars,
                               max_bytes=self._reply_max_bytes)
-        outcome = ('cache' if state.program_reply.startswith('Beltline ') else
-                   'last-known' if state.program_reply.startswith('Most recent ') else 'unavailable')
+        outcome = (('cache' if self.traffic.is_current(direction) else 'last-known')
+                   if state.program_reply.startswith('Beltline: ') else 'unavailable')
         self.log.emit('traffic_lookup', outcome=outcome,
                       direction=direction or 'both', reply=reply)
         if sent:

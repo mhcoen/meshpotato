@@ -52,7 +52,8 @@ def beltline_direction(prompt: str, location: str = 'Madison, Wisconsin') -> str
 
 @dataclass(frozen=True)
 class Report:
-    text: str
+    travel_minutes: float
+    delay_minutes: float
     observed_at: float
     fetched_at: float
     fetched_mono: float
@@ -102,13 +103,8 @@ def parse_reports(payload: dict, now: float, mono: float) -> dict[str, Report]:
             raise ValueError('inconsistent travel-time measurement')
         if direction in selected:
             raise ValueError('duplicate corridor')
-        selected[direction] = (f'{direction} {_number(current)}m (+{_number(delay)})', observed)
-    reports = {d: Report(f'Beltline Univ to I-39/90: {text}' if d == 'EB' else f'Beltline I-39/90 to Univ: {text}', observed, now, mono)
-               for d, (text, observed) in selected.items()}
-    if len(selected) == 2:
-        reports[''] = Report('Beltline Univ<>I-39/90: ' + '; '.join(selected[d][0] for d in ('EB', 'WB')),
-                             min(value[1] for value in selected.values()), now, mono)
-    return reports
+        selected[direction] = Report(current, delay, observed, now, mono)
+    return selected
 
 
 async def fetch_table() -> dict:
@@ -177,45 +173,47 @@ class TrafficCache:
             self.log.emit('traffic_refresh', outcome='ready', directions=sorted(reports), source=SOURCE)
             return True
 
+    def _usable_reports(self, direction: str) -> dict[str, Report]:
+        now, mono = self.wall_clock(), self.clock()
+        return {d: r for d in ((direction,) if direction else ('EB', 'WB'))
+                if (r := self.reports.get(d)) is not None and now >= r.observed_at
+                and now >= r.fetched_at and mono >= r.fetched_mono}
+
+    def _fresh(self, report: Report) -> bool:
+        now, mono = self.wall_clock(), self.clock()
+        return (0 <= now - report.observed_at < MAX_AGE_S
+                and 0 <= now - report.fetched_at < MAX_AGE_S
+                and 0 <= mono - report.fetched_mono < MAX_AGE_S)
+
+    def is_current(self, direction: str) -> bool:
+        reports = self._usable_reports(direction)
+        return len(reports) == (1 if direction else 2) and all(self._fresh(r) for r in reports.values())
+
     def answer(self, direction: str, available: int) -> str:
         unavailable = (TRAFFIC_UNAVAILABLE if len(TRAFFIC_UNAVAILABLE) <= available
                        else "I can get live traffic, but can't right now.")
-        now = self.wall_clock()
-        mono = self.clock()
-        wanted = (direction,) if direction else ('EB', 'WB')
-        reports = {d: r for d in wanted if (r := self.reports.get(d)) is not None
-                   and now >= r.observed_at and now >= r.fetched_at and mono >= r.fetched_mono}
+        reports = self._usable_reports(direction)
         if not reports:
             return unavailable
-        if len(reports) == len(wanted) and all(
-            now - r.observed_at < MAX_AGE_S and now - r.fetched_at < MAX_AGE_S
-            and mono - r.fetched_mono < MAX_AGE_S for r in reports.values()
-        ):
-            # Rebuild both directions from their latest individual reports, so a
-            # partial poll cannot leave an older combined snapshot in the answer.
-            text = (reports[direction].text if direction else 'Beltline Univ<>I-39/90: '
-                    + '; '.join(reports[d].text.split(': ', 1)[1] for d in wanted))
-            age = int((now - min(r.observed_at for r in reports.values())) // 60)
-            answer = f'{text}. 511 {age}m ago; +delay.'
-        else:
-            today = datetime.fromtimestamp(now, CENTRAL).date()
-            def stamp(report, compact=False):
-                observed = datetime.fromtimestamp(report.observed_at, CENTRAL)
-                date = (observed.strftime('%m/%d/%Y ' if observed.year != today.year else '%m/%d ')
-                        if observed.date() != today else '')
-                return date + observed.strftime('%I:%M%p' if compact else '%I:%M %p').lstrip('0')
-            if len(reports) == 1:
-                d, report = next(iter(reports.items()))
-                zone = datetime.fromtimestamp(report.observed_at, CENTRAL).tzname()
-                missing = f' {"WB" if d == "EB" else "EB"} unavailable.' if not direction else ''
-                answer = f'Most recent update {stamp(report)} {zone}: {report.text}. 511; +delay.{missing}'
+        now = self.wall_clock()
+        today = datetime.fromtimestamp(now, CENTRAL).date()
+        parts = []
+        for d in ((direction,) if direction else ('EB', 'WB')):
+            name = 'Eastbound' if d == 'EB' else 'Westbound'
+            report = reports.get(d)
+            if report is None:
+                parts.append(f'{name} unavailable')
+                continue
+            if self._fresh(report):
+                stamp = f'{int((now-report.observed_at)//60)} min ago'
             else:
-                # Each direction has its own source timestamp, including a date
-                # for prior days. Do not apply the newer time to both directions.
-                parts = []
-                for d, report in reports.items():
-                    measurement = report.text.split(': ', 1)[1].removeprefix(d + ' ')
-                    zone = datetime.fromtimestamp(report.observed_at, CENTRAL).tzname()
-                    parts.append(f'{d} {stamp(report, compact=True)} {zone} {measurement}')
-                answer = 'Most recent 511 updates: ' + '; '.join(parts) + '. Beltline Univ<>I-39/90; +delay.'
+                observed = datetime.fromtimestamp(report.observed_at, CENTRAL)
+                days_ago = (today - observed.date()).days
+                date = ('yesterday ' if days_ago == 1 else
+                        observed.strftime('%m/%d/%Y ' if observed.year != today.year else '%m/%d ')
+                        if days_ago else '')
+                stamp = date + observed.strftime('%I:%M %p').lstrip('0')
+            delay = 'no delay' if report.delay_minutes == 0 else f'{_number(report.delay_minutes)} min delay'
+            parts.append(f'{name} {_number(report.travel_minutes)} min, {delay} ({stamp})')
+        answer = 'Beltline: ' + '. '.join(parts) + '. Source: 511.'
         return answer if len(answer) <= available else unavailable

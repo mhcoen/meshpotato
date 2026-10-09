@@ -292,13 +292,16 @@ prepared report for the University Avenue–I-39/90 corridor, without a foregrou
 search or model call. `/web Beltline traffic?` also uses this cache. Example with
 **illustrative measurements**:
 
-> Beltline Univ<>I-39/90: EB 22m (+5); WB 17m (+0). 511 2m ago; +delay.
+> Beltline: Eastbound 22 min, 5 min delay (2 min ago). Westbound 17 min, no delay (2 min ago). Source: 511.
 
-Times and additional delays are in minutes; the age comes from 511's oldest
-measurement included in the reply. Only source measurements and successful
+Travel times and additional delays are in minutes. Each direction shows its
+own source update age or time; clock times are Central time. Only source measurements and successful
 fetches under ten minutes old are described as current. Older reports remain
-available as "Most recent update" with their original source times. Replies
-include the date for previous days and give each direction its own timestamp.
+available with their original source times in parentheses, for example:
+
+> Beltline: Eastbound 17 min, no delay (yesterday 11:06 PM). Westbound 17 min, no delay (4:13 AM). Source: 511.
+
+Replies say "yesterday" or give a date for older measurements.
 A failed refresh preserves the last known measurements without changing their
 times. If only one direction is available, the reply identifies the missing
 direction. The unavailable notice is reserved for missing or invalid data, or
@@ -676,6 +679,16 @@ file. `config.toml` is ignored by git.
 ```bash
 .venv/bin/meshpotato --config config.toml
 ```
+
+To restart without broadcasting the opening message, add `--no-announce`:
+
+```bash
+.venv/bin/meshpotato --config config.toml --no-announce
+```
+
+This also works with `--headless`. Set `announce_startup = false` under `[bot]`
+to make quiet startup the default. Regular replies, fortunes, and scheduled usage
+tips retain their normal behavior.
 
 This opens a terminal monitor showing the radio and channel state, a
 scrolling log of every message on the channel with its hop count and the

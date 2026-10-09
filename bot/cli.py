@@ -9,6 +9,7 @@ import os
 import signal
 import sys
 from collections.abc import Sequence
+from dataclasses import replace
 from pathlib import Path
 
 import psutil
@@ -40,6 +41,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="meshpotato", description="MeshCore channel bot backed by a local LLM")
     parser.add_argument("--config", default="config.toml", help="path to the TOML config (default: config.toml)")
     parser.add_argument("--headless", action="store_true", help="no TUI; JSON log only")
+    parser.add_argument("--no-announce", action="store_true", help="skip the opening channel message on startup")
     parser.add_argument("--log-file", default=None, help="override log_file from config")
     parser.add_argument(
         "--debug",
@@ -304,6 +306,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 4
     try:
         cfg = load_config(args.config)
+        if args.no_announce:
+            cfg = replace(cfg, announce_startup=False)
     except ConfigError as exc:
         print(f"config error: {exc}", file=sys.stderr)
         return 1

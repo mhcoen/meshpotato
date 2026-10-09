@@ -47,6 +47,7 @@ class Config:
 
     # [bot]
     bot_name: str = "Mesh Potato"
+    announce_startup: bool = True
     trigger_prefix: str = ""
     reply_max_chars: int | None = None
     prompt_max_chars: int = 160

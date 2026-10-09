@@ -66,14 +66,14 @@ async def test_ready_report_and_original_source_age():
     clock = FakeClock(NOW + 120)
     c = cache(clock)
     assert await c.refresh()
-    assert c.answer('', 130) == 'Beltline Univ<>I-39/90: EB 22m (+5); WB 17m (+0). 511 2m ago; +delay.'
-    assert 'Univ to I-39/90: EB 22m' in c.answer('EB', 130)
-    assert 'I-39/90 to Univ: WB 17m' in c.answer('WB', 130)
+    assert c.answer('', 130) == 'Beltline: Eastbound 22 min, 5 min delay (2 min ago). Westbound 17 min, no delay (2 min ago). Source: 511.'
+    assert 'Eastbound 22 min, 5 min delay' in c.answer('EB', 130)
+    assert 'Westbound 17 min, no delay' in c.answer('WB', 130)
     assert c.answer('', 50) == "I can get live traffic, but can't right now."
     clock.advance(479)
-    assert '+delay' in c.answer('', 130)
+    assert '(9 min ago)' in c.answer('', 130)
     clock.advance(1)
-    assert c.answer('', 130).startswith('Most recent 511 updates:')
+    assert '(8:00 AM)' in c.answer('', 130)
 
 
 async def test_failed_refresh_preserves_last_good_and_never_rejuvenates_it():
@@ -87,9 +87,9 @@ async def test_failed_refresh_preserves_last_good_and_never_rejuvenates_it():
     clock.advance(300)
     assert not await c.refresh()
     assert c.reports == old
-    assert '5m ago' in c.answer('', 130)
+    assert '5 min ago' in c.answer('', 130)
     clock.advance(300)
-    assert c.answer('', 130).startswith('Most recent 511 updates:')
+    assert '(8:00 AM)' in c.answer('', 130)
 
 
 async def test_polling_identical_old_source_does_not_reset_age():
@@ -98,10 +98,10 @@ async def test_polling_identical_old_source_does_not_reset_age():
     await c.refresh()
     clock.advance(540)
     assert await c.refresh()
-    assert '9m ago' in c.answer('', 130)
+    assert '9 min ago' in c.answer('', 130)
     clock.advance(60)
     assert await c.refresh()
-    assert c.answer('', 130).startswith('Most recent 511 updates:')
+    assert '(8:00 AM)' in c.answer('', 130)
 
 
 @pytest.mark.parametrize('field,value', [('travelTime', 'NaN'), ('delay', '-1'),
@@ -146,7 +146,7 @@ async def test_clock_rollback_and_fetch_age_fail_closed():
     assert c.answer('', 130) == TRAFFIC_UNAVAILABLE
     c.wall_clock = lambda: NOW
     c.clock = lambda: NOW + 600
-    assert c.answer('', 130).startswith('Most recent 511 updates:')
+    assert '(8:00 AM)' in c.answer('', 130)
 
 
 async def test_background_worker_starts_once_and_cancels_inflight_fetch():
@@ -179,7 +179,7 @@ async def test_query_bypasses_model_and_web_including_model_cooldown(question):
     h.service.web.search = forbidden
     h.service._backend_retry_at = NOW + 1000
     await h.say('Michael: ' + question)
-    assert h.sent[-1][1] == '@[Michael] Beltline Univ<>I-39/90: EB 22m (+5); WB 17m (+0). 511 0m ago; +delay.'
+    assert h.sent[-1][1] == '@[Michael] Beltline: Eastbound 22 min, 5 min delay (0 min ago). Westbound 17 min, no delay (0 min ago). Source: 511.'
     assert not h.backend.calls
     assert len(('Mesh Potato: ' + h.sent[-1][1]).encode()) <= 160
 
@@ -203,7 +203,7 @@ async def test_expiry_during_hold_labels_last_known_measurements():
         return 600000
     h.service._hold_for_quiet_channel = hold
     await h.say('Michael: Beltline traffic?')
-    assert h.sent[-1][1].startswith('@[Michael] Most recent 511 updates:')
+    assert '(8:00 AM)' in h.sent[-1][1]
     assert any(r.get('reply') == h.sent[-1][1] for r in h.records)
     assert not h.backend.calls
 
@@ -245,12 +245,12 @@ async def test_expiry_at_send_updates_both_radio_output_and_record(monkeypatch):
     await h.service.traffic.refresh()
     original_send = h.service._send
     async def delayed_send(reply, **kwargs):
-        assert 'EB 22m' in reply
+        assert 'Eastbound 22 min' in reply
         clock.advance(600)
         return await original_send(reply, **kwargs)
     monkeypatch.setattr(h.service, '_send', delayed_send)
     await h.say('Michael: Beltline traffic?')
-    assert h.sent[-1][1].startswith('@[Michael] Most recent 511 updates:')
+    assert '(8:00 AM)' in h.sent[-1][1]
     assert any(r.get('event') == 'traffic_lookup' and r['outcome'] == 'last-known'
                and r['reply'] == h.sent[-1][1] for r in h.records)
     assert not h.backend.calls
@@ -292,7 +292,7 @@ async def test_historical_beltline_wording_uses_cache(prompt):
         pytest.fail('historical Beltline wording missed cache')
     h.service.web.search = forbidden
     await h.say('Michael: /web '+prompt)
-    assert 'EB 22m' in h.sent[-1][1]
+    assert 'Eastbound 22 min' in h.sent[-1][1]
     assert not h.backend.calls
 
 
@@ -310,9 +310,9 @@ async def test_historical_source_times_survive_new_fetch_and_fit_actual_sender()
     assert await c.refresh()
     await h.say("Michael M7: What's the traffic like on the beltline?")
     reply = h.sent[-1][1]
-    assert 'Most recent 511 updates' in reply
-    assert 'EB 10/08 11:06PM CDT 17m (+0)' in reply
-    assert 'WB 4:13AM CDT 17m (+0)' in reply
+    assert reply.startswith('@[Michael M7] Beltline: ')
+    assert 'Eastbound 17 min, no delay (yesterday 11:06 PM)' in reply
+    assert 'Westbound 17 min, no delay (4:13 AM)' in reply
     assert len(('Mesh Potato: '+reply).encode()) <= 160
     assert not h.backend.calls
     assert '4:24' not in reply  # fetching did not refresh the observation
@@ -327,8 +327,8 @@ async def test_single_direction_last_update_and_missing_direction():
         return payload
     c.fetch = fetch
     assert await c.refresh()
-    assert c.answer('WB',130) == 'Most recent update 4:13 AM CDT: Beltline I-39/90 to Univ: WB 17m (+0). 511; +delay.'
-    assert 'EB unavailable.' in c.answer('',130)
+    assert c.answer('WB',130) == 'Beltline: Westbound 17 min, no delay (4:13 AM). Source: 511.'
+    assert 'Eastbound unavailable.' in c.answer('',130)
     assert c.answer('EB',130) == TRAFFIC_UNAVAILABLE
 
 
@@ -339,7 +339,7 @@ async def test_last_year_is_explicit_in_historical_timestamp():
         return table(old)
     c.fetch = fetch
     assert await c.refresh()
-    assert '10/09/2025 8:00 AM CDT' in c.answer('EB',130)
+    assert '10/09/2025 8:00 AM' in c.answer('EB',130)
 
 
 async def test_partial_refresh_uses_latest_each_direction_not_old_combined_snapshot():
@@ -353,6 +353,6 @@ async def test_partial_refresh_uses_latest_each_direction_not_old_combined_snaps
         return changed
     c.fetch = fetch
     assert await c.refresh()
-    assert 'EB 27m (+10)' in c.answer('',130)
-    assert 'WB 17m (+0)' in c.answer('',130)
-    assert '1m ago' in c.answer('',130)
+    assert 'Eastbound 27 min, 10 min delay' in c.answer('',130)
+    assert 'Westbound 17 min, no delay' in c.answer('',130)
+    assert '1 min ago' in c.answer('',130)

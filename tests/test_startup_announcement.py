@@ -186,3 +186,46 @@ async def test_startup_advertises_enabled_live_topics(harness):
         assert len(f"MeshAI: {h.sent[0][1]}".encode()) <= 160
     finally:
         await h.service.stop()
+
+
+async def test_quiet_start_keeps_normal_replies_and_reconnect_quiet(harness):
+    from bot.service import Decision
+    h = harness(announce_startup=False)
+    try:
+        await h.service.start()
+        assert h.service._startup_announcement_task is None
+        assert h.sent == [] and h.mc.auto_fetch
+        assert h.limiter.snapshot()['global_tokens'] == 1
+        await h.service._on_connected(SimpleNamespace(payload={}))
+        await h.service.start()
+        assert h.sent == []
+        assert await h.say('Alice: help') is Decision.ANSWERED_HELP
+        assert h.sent == [(1, h.cfg.help_message)]
+    finally:
+        await h.service.stop()
+
+
+@pytest.mark.parametrize('headless', [False, True])
+@pytest.mark.parametrize('configured,flag,expected', [(True,True,False),(True,False,True),(False,False,False)])
+def test_no_announce_cli_override_without_process_or_radio_io(monkeypatch, headless, configured, flag, expected):
+    from contextlib import nullcontext
+    from unittest.mock import Mock
+    from bot import cli
+    cfg = make_config(announce_startup=configured)
+    monkeypatch.setattr(cli, 'load_config', lambda *args: cfg)
+    monkeypatch.setattr(cli, 'checked_references', lambda *args: ())
+    owner = Mock()
+    monkeypatch.setattr(cli, 'SingleInstance', lambda: nullcontext(owner))
+    def run(args, actual, references):
+        assert actual.announce_startup is expected
+        assert args.headless is headless
+        return 0
+    monkeypatch.setattr(cli, '_main_run', run)
+    assert cli.main((['--headless'] if headless else []) + (['--no-announce'] if flag else [])) == 0
+    owner.stop_others.assert_called_once()
+
+
+def test_quiet_start_can_be_configured_by_environment():
+    from bot.config import config_from_mapping
+    cfg = config_from_mapping({'port':'/dev/fake'}, env={'MESHPOTATO_ANNOUNCE_STARTUP':'false'})
+    assert cfg.announce_startup is False

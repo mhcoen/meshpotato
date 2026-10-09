@@ -16,8 +16,8 @@ degree symbols are allowed when the summary fits one radio packet.
 When enabled, Madison Beltline travel times are refreshed every five minutes
 from Wisconsin 511 and answered from a prepared cache without a model call.
 Reports cover University Avenue to I-39/90. Data under ten minutes old shows its
-source age; older data shows "Most recent update" with original times and dates,
-separately by direction. Missing or invalid data gets an unavailability notice.
+source age; older data shows original times and dates in parentheses.
+Directions and minute counts are written in plain language; times are Central time. Missing or invalid data gets an unavailability notice.
 
 When enabled, two short usage tips per day show example questions, including
 weather, sports and traffic in the morning, broader examples in the evening.
