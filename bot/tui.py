@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections import deque
 from collections.abc import Awaitable, Callable
 from typing import Any
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
+from textual import events
 from textual.containers import Horizontal
-from textual.widgets import Footer, Header, RichLog, Static
+from textual.widgets import Footer, Header, RichLog, Static, Tab, Tabs
+from rich.text import Text
 
 from bot.config import Config
 from bot.ratelimit import RateLimiter
@@ -22,7 +25,12 @@ class MeshPotatoApp(App[None]):
     CSS = """
     Horizontal#top { height: 14; }
     #status, #limits, #util { width: 1fr; border: round $primary; padding: 0 1; }
-    #log { border: round $secondary; height: 1fr; }
+    #compact-status { height: auto; max-height: 5; padding: 0 1; }
+    #channel-tabs { height: 3; }
+    #channels { height: 1fr; min-height: 4; }
+    .channel-log { width: 1fr; height: 1fr; border: round $secondary; }
+    .channel-log.selected { border: round $primary; }
+    #log { border: round $warning; height: 6; min-height: 3; }
     """
     BINDINGS = [
         Binding("q", "quit", "Quit"),
@@ -50,6 +58,10 @@ class MeshPotatoApp(App[None]):
         self._monitor = monitor
         self._fortune = fortune
         self._channel_stats = channel_stats or {cfg.channel_idx: stats}
+        self._active_slot = next((idx for idx, value in self._channel_stats.items() if value is stats), next(iter(self._channel_stats)))
+        self._lines = {idx: deque(maxlen=2000) for idx in self._channel_stats}
+        self._shared_lines = deque(maxlen=1000)
+        self._layout_key = None
         self._reply_queue = reply_queue
         self._subscribe_log = subscribe_log
         self._run_service = run_service
@@ -63,7 +75,14 @@ class MeshPotatoApp(App[None]):
             yield Static(id="status")
             yield Static(id="limits")
             yield Static(id="util")
-        yield RichLog(id="log", highlight=False, markup=False, wrap=True, max_lines=2000)
+        yield Static(id="compact-status")
+        yield Tabs(*(Tab(Text(self._channel_label(idx)), id=f"tab-{idx}") for idx in self._channel_stats),
+                   active=f"tab-{self._active_slot}", id="channel-tabs")
+        with Horizontal(id="channels"):
+            for idx in self._channel_stats:
+                yield RichLog(id=f"channel-{idx}", classes="channel-log", min_width=1,
+                              highlight=False, markup=False, wrap=True, max_lines=2000)
+        yield RichLog(id="log", min_width=1, highlight=False, markup=False, wrap=True, max_lines=1000)
         yield Footer()
 
     def on_mount(self) -> None:
@@ -89,9 +108,60 @@ class MeshPotatoApp(App[None]):
 
     def action_next_channel(self) -> None:
         slots = list(self._channel_stats)
-        current = next((i for i, idx in enumerate(slots) if self._channel_stats[idx] is self._stats), 0)
-        self._stats = self._channel_stats[slots[(current + 1) % len(slots)]]
+        self._active_slot = slots[(slots.index(self._active_slot) + 1) % len(slots)]
+        self._stats = self._channel_stats[self._active_slot]
+        self.query_one('#channel-tabs', Tabs).active = f'tab-{self._active_slot}'
         self._refresh_panels()
+
+    def on_tabs_tab_activated(self, event: Tabs.TabActivated) -> None:
+        if event.tabs.id != 'channel-tabs':
+            return
+        self._active_slot = int(event.tab.id.removeprefix('tab-'))
+        self._stats = self._channel_stats[self._active_slot]
+        self._refresh_panels()
+
+    def on_resize(self, event: events.Resize) -> None:
+        if self.is_mounted:
+            self.call_after_refresh(self._refresh_panels)
+
+    def _channel_label(self, idx: int) -> str:
+        name = self._channel_stats[idx].channel_name
+        if idx == self._cfg.chess_channel_idx:
+            label = 'Chess'
+        elif idx == self._cfg.traffic_channel_idx:
+            label = 'Traffic'
+        elif name.lower().lstrip('#') == 'ai' or idx == self._cfg.channel_idx:
+            label = 'AI'
+        else:
+            label = name or f'Channel {idx}'
+        return f'{label} · {name}' if name and name.lower().lstrip('#') != label.lower().lstrip('#') else label
+
+    def _layout_channels(self) -> None:
+        width, height = self.size
+        columns = len(self._channel_stats) == 1 or width >= 48*len(self._channel_stats)
+        compact = width < 110 or height < 34
+        self.query_one('#top').display = not compact
+        self.query_one('#compact-status').display = compact
+        self.query_one('#channel-tabs').display = not columns
+        self.query_one('#log', RichLog).border_title = 'Shared radio events and errors'
+        for idx in self._channel_stats:
+            panel = self.query_one(f'#channel-{idx}', RichLog)
+            panel.border_title = Text(self._channel_label(idx))
+            panel.set_class(idx == self._active_slot, 'selected')
+            panel.display = columns or idx == self._active_slot
+            self.query_one(f'#tab-{idx}', Tab).label = Text(self._channel_label(idx))
+        key = (width, height, columns, self._active_slot)
+        if key != self._layout_key:
+            self._layout_key = key
+            self.call_after_refresh(self._redraw_logs)
+
+    def _redraw_logs(self) -> None:
+        for selector, lines in [(f'#channel-{idx}', lines) for idx, lines in self._lines.items()] + [('#log', self._shared_lines)]:
+            panel = self.query_one(selector, RichLog)
+            if panel.display:
+                panel.clear()
+                for line in lines:
+                    panel.write(line)
 
     def _refresh_panels(self) -> None:
         s = self._stats
@@ -103,7 +173,7 @@ class MeshPotatoApp(App[None]):
             f"{'  [n: next of ' + str(len(self._channel_stats)) + ']' if len(self._channel_stats) > 1 else ''}\n"
             f"[b]Persona[/b] {s.persona}"
             f"{'  until ' + time.strftime('%H:%M', time.localtime(s.persona_expires_at)) if s.persona_expires_at else ''}\n"
-            f"[b]Model[/b]   {cfg.backend}:{cfg.model}\n"
+            f"[b]Model[/b]   {'Stockfish (chess)' if s.persona == 'chess' else 'Wisconsin 511 (traffic)' if s.persona == 'traffic' else cfg.backend + ':' + cfg.model}\n"
             f"         last latency {latency}\n"
             f"[b]Counts[/b]  heard {s.rx_heard}  in {s.received}  replies {s.replies_sent}  apologies {s.apologies_sent}\n"
             f"         injection-blocked {s.injection_blocks}  rate-limited {s.rate_limited}\n"
@@ -130,6 +200,15 @@ class MeshPotatoApp(App[None]):
         self.query_one("#status", Static).update(status)
         self.query_one("#limits", Static).update(limits)
         self.query_one("#util", Static).update(self._utilization_text())
+        errors = sum(s.send_errors+s.model_errors for s in self._channel_stats.values())
+        connected = any(s.connected for s in self._channel_stats.values())
+        self.query_one('#compact-status', Static).update(Text(
+            f"Radio {'CONNECTED' if connected else 'DISCONNECTED'}  {cfg.port}\n"
+            f"Queue {queue_depth}/{cfg.queue_max_pending}  active {'yes' if reply_active else 'no'}"
+            f"  rate {snap['global_per_min']:g}/min  errors {errors}\n"
+            f"Selected: {self._channel_label(self._active_slot)}  in {s.received}  replies {s.replies_sent}"
+            f"  [n: next channel]"))
+        self._layout_channels()
 
     def _fortune_text(self) -> str:
         f = self._fortune
@@ -178,8 +257,8 @@ class MeshPotatoApp(App[None]):
             elif decision.startswith("answered") or decision == "apology":
                 extra = f" -> {record.get('reply')}"
             line = (
-                f"{ts} {record.get('sender', '?')!s:<16} hops={record.get('path_len')} "
-                f"{decision:<24} {record.get('prompt', '')!s}{extra}"
+                f"{ts} {record.get('sender', '?')}: {record.get('prompt', '')!s}\n"
+                f"  {decision}{extra}"
             )
         elif event == "rx":
             if not record.get("ours"):
@@ -190,6 +269,10 @@ class MeshPotatoApp(App[None]):
             )
         elif event == "rate_level":
             line = f"{ts} [rate] {record.get('old')} -> {record.get('new')} at duty {record.get('duty')} ({record.get('reason')})"
+        elif event in {'announce', 'post', 'traffic_alert_post'}:
+            label = 'alert' if event == 'traffic_alert_post' else record.get('what', event)
+            outcome = record.get('outcome', 'sent')
+            line = f"{ts} [{label}: {outcome}] {record.get('text', '')}"
         elif event in (
             "startup", "shutdown", "connected", "disconnected", "send_error", "injection_block",
             "shutdown_error", "utilization_error", "reply_too_long", "persona_switch", "persona_reset",
@@ -198,7 +281,8 @@ class MeshPotatoApp(App[None]):
             "queued", "dequeued", "reply_retry", "reply_rejected", "sports_lookup",
             "tip_scheduled", "tip_posted", "tip_skipped", "tip_error",
             "web_lookup", "web_source_rejected", "web_retry", "web_answer", "generation_budget_exhausted",
-            "state_restored", "state_error",
+            "state_restored", "state_error", "chess_state_error",
+            "traffic_alert_refresh", "traffic_alert_post", "traffic_alert_skipped", "traffic_alert_error",
         ):
             details = {k: v for k, v in record.items() if k not in ("ts", "event")}
             line = f"{ts} [{event}] {details}"
@@ -207,6 +291,21 @@ class MeshPotatoApp(App[None]):
         if "channel_idx" in record:
             line = f"[ch {record['channel_idx']}] {line}"
         try:
-            self.query_one("#log", RichLog).write(line)
+            idx = record.get('channel_idx')
+            channel_lines = getattr(self, '_lines', {})
+            if idx is None and len(channel_lines) == 1:
+                idx = next(iter(channel_lines))
+            if idx in channel_lines:
+                channel_lines[idx].append(line)
+                self.query_one(f'#channel-{idx}', RichLog).write(line)
+            # Unscoped events and all errors remain visible regardless of the selected tab.
+            shared = (idx not in channel_lines or event in {'connected', 'disconnected', 'shutdown', 'rate_level'}
+                      or 'error' in str(event) or str(event).endswith('_failed')
+                      or record.get('outcome') in {'send-failed', 'state-error', 'unavailable'}
+                      or event == 'inbound' and str(record.get('decision', '')).startswith('dropped:'))
+            if shared:
+                if hasattr(self, '_shared_lines'):
+                    self._shared_lines.append(line)
+                self.query_one("#log", RichLog).write(line)
         except Exception:  # noqa: BLE001 - widget may not be mounted yet
             pass

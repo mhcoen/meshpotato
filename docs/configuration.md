@@ -10,7 +10,12 @@ any key may appear in any section.
 | `port` | required | Serial device of the companion radio |
 | `channel_idx` | `1` | Channel slot on the radio to serve |
 | `additional_channels` | `[]` | Extra radio slots for isolated AI conversations, e.g. `[2, 3]`; environment form `2,3`. All slots share one queue and rate budget. Introductions, tips and fortunes stay on `channel_idx` |
-| `announce_startup` | `true` | Broadcast an introduction on startup; `false` or CLI `--no-announce` skips it |
+| `chess_channel_idx` | `-1` | Disabled by default. Set to a configured radio slot named `chess` or `#chess`; automatically adds this slot and uses the chess handler instead of AI chat. Requires persistent `state_db` and the chess extra |
+| `chess_engine_path` | `stockfish` | Stockfish executable on PATH, or absolute path; install separately |
+| `chess_think_s` | `0.2` | Time per engine search, 0.05–2 seconds; one thread, 32 MiB hash. Radio queuing and rate limits still apply |
+| `chess_max_games` | `1000` | Maximum saved player sessions, 1–10000; new players are refused at capacity, existing games are preserved |
+| `announce_startup` | `true` | Enable AI, chess and traffic welcomes; `false` or CLI `--no-announce` suppresses all |
+| `announce_once` | `true` | Persist a welcome attempt per channel; restarts and version changes stay quiet. Requires a persistent state database; `false` announces at every start |
 | `bot_name` | `Mesh Potato` | Must equal the radio's node name |
 | `trigger_prefix` | `""` | Off by default, so every message is a prompt, except bare reactions and lines mentioning someone else, and the model may pass on remarks between other people; `"!ai "` answers only messages beginning with that exact text |
 | `reply_max_chars` | automatic | Omit to calculate 160 minus the UTF-8 byte length of `bot_name` minus 2 (147 for Mesh Potato). Optionally set a smaller character cap, including the exact-name mention; every reply is also checked in UTF-8 bytes. |
@@ -38,6 +43,10 @@ any key may appear in any section.
 | `web_location` | `Madison, Wisconsin` | Default location for local weather/hours questions without an explicit location; dates, including sports game dates, use the computer's local timezone |
 | `traffic_enabled` | `true` | Prefetch Madison Beltline and I-90 (Beltline to I-94) travel times from public Wisconsin 511 tables; requires `web_enabled` |
 | `traffic_refresh_s` | `300.0` | Background refresh interval, 60–600 seconds. Observations older than ten minutes retain their source dates/times |
+| `traffic_channel_idx` | `-1` | Optional dedicated `#traffic` slot; automatically served, with traffic questions elsewhere directed to it. Requires persistent state and environment `WI511_API_KEY` |
+| `traffic_counties` | `Dane` | Comma separated counties for significant incident, closure and hazardous road reports |
+| `traffic_lookahead_h` | `24.0` | Include significant scheduled closures this many hours ahead, from 1 to 72 |
+| `traffic_announce_existing` | `true` | Announce still relevant significant reports on the first successful startup; saved receipts prevent repeats across restarts |
 | `global_rate_per_min` | `4.0` | Burst floor: replies per minute across all senders |
 | `global_burst` | `1` | Global bucket size |
 | `sender_rate_per_min` | `4.0` | Replies per minute per sender name |

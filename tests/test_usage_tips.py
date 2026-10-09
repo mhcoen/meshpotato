@@ -285,3 +285,20 @@ async def test_cli_tip_toggle(enabled):
                           FakeMeshCore(),EventLog(stream=io.StringIO()),references=())
     assert (service.tips is not None) == enabled
     await service.stop()
+
+
+def test_ai_traffic_redirect_is_carried_into_help_and_tips():
+    from tests.conftest import make_config
+    from bot.usage_tips import examples
+    cfg = make_config(traffic_channel_idx=3, state_db='/tmp/not-opened.sqlite3', web_enabled=True)
+    child = cfg.for_channel(cfg.channel_idx)
+    assert child.traffic_channel_idx == -1 and child.redirects_traffic
+    assert '#traffic' in child.help_message and 'Beltline traffic' not in child.help_message
+    tips = examples(child)
+    assert tips and not any(identifier.startswith('traffic-') for identifier, _ in tips)
+    assert any(identifier == 'intro' and '#traffic' in text for identifier, text in tips)
+    assert not cfg.for_channel(3).redirects_traffic
+    # The traffic slot can be primary, with an AI slot served alongside it.
+    primary_traffic = make_config(channel_idx=3, traffic_channel_idx=3, additional_channels=(1,),
+                                 state_db='/tmp/not-opened.sqlite3')
+    assert primary_traffic.for_channel(1).redirects_traffic

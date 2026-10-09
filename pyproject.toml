@@ -38,7 +38,9 @@ Homepage = "https://github.com/mhcoen/meshpotato"
 Issues = "https://github.com/mhcoen/meshpotato/issues"
 
 [project.optional-dependencies]
+chess = ["chess>=1.11,<2"]
 dev = [
+  "chess>=1.11,<2",
   "pytest>=8",
   "pytest-asyncio>=0.24",
 ]
@@ -48,10 +50,11 @@ meshpotato = "bot.cli:main"
 meshai = "bot.cli:main" # compatibility with existing launch scripts
 
 [tool.setuptools]
-packages = ["bot"]
+packages = ["bot", "bot.traffic"]
 
 [tool.setuptools.package-data]
 bot = ["radio_reference.toml", "README.short.txt", "EPISODIC-LICENSE"]
+"bot.traffic" = ["README.md"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

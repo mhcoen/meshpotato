@@ -29,6 +29,14 @@ I90_ROUTES = {
 }
 
 
+def is_traffic_question(prompt: str) -> bool:
+    if re.search(r'\b(?:radio|mesh|network|packet|website|internet|air traffic)\b', prompt, re.I):
+        return False
+    return bool(re.search(r'\btraffic\b', prompt, re.I) or
+                re.search(r'\b(?:crash|accident|closure|closed|icy|ice|delay|delays)\b', prompt, re.I)
+                and re.search(r'\b(?:road|highway|belt\s*line|i[- ]?\d+|wis\s*\d+|us[- ]?\d+)\b', prompt, re.I))
+
+
 def beltline_direction(prompt: str, location: str = 'Madison, Wisconsin') -> str | None:
     """Only current travel-time questions about our known corridor, not other roads."""
     text = prompt.lower().replace('’', "'")
@@ -273,7 +281,7 @@ class TrafficCache:
         reports = self._usable_reports(direction)
         return len(reports) == len(_directions(direction)) and all(self._fresh(r) for r in reports.values())
 
-    def answer(self, direction: str, available: int) -> str:
+    def answer(self, direction: str, available: int, *, include_source: bool = True) -> str:
         unavailable = (TRAFFIC_UNAVAILABLE if len(TRAFFIC_UNAVAILABLE) <= available
                        else "I can get live traffic, but can't right now.")
         reports = self._usable_reports(direction)
@@ -300,7 +308,7 @@ class TrafficCache:
             delay = 'no delay' if report.delay_minutes == 0 else f'{_number(report.delay_minutes)} min delay'
             parts.append(f'{name} {_number(report.travel_minutes)} min, {delay} ({stamp})')
         label = 'I-90 Beltline to I-94: ' if direction.startswith('I90') else 'Beltline: '
-        answer = label + '. '.join(parts) + '. Source: 511.'
+        answer = label + '. '.join(parts) + ('. Source: 511.' if include_source else '.')
         if len(answer) > available and direction == 'I90':
             notice = 'I-90 report needs one direction to fit: try /traffic I90 northbound or /traffic I90 southbound.'
             return notice if len(notice) <= available else unavailable

@@ -229,3 +229,104 @@ def test_quiet_start_can_be_configured_by_environment():
     from bot.config import config_from_mapping
     cfg = config_from_mapping({'port':'/dev/fake'}, env={'MESHPOTATO_ANNOUNCE_STARTUP':'false'})
     assert cfg.announce_startup is False
+
+
+@pytest.mark.parametrize('failure', [False, True])
+async def test_persistent_welcome_not_replayed_after_restart(harness, tmp_path, failure):
+    path = str(tmp_path/'welcome.sqlite3')
+    h = harness(state_db=path)
+    if failure:
+        h.mc.commands.raise_on_send = OSError('ambiguous radio failure')
+    await h.service.start()
+    await asyncio.wait_for(h.service._startup_announcement_task, 1)
+    assert h.service._state_store.welcome_attempted()
+    await h.service.stop()
+    restarted = harness(state_db=path)
+    await restarted.service.start()
+    await asyncio.wait_for(restarted.service._startup_announcement_task, 1)
+    assert restarted.sent == []
+    await restarted.service.stop()
+
+
+async def test_suppressed_or_cancelled_welcome_remains_due(harness, tmp_path):
+    path = str(tmp_path/'welcome.sqlite3')
+    quiet = harness(state_db=path, announce_startup=False)
+    await quiet.service.start()
+    assert not quiet.service._state_store.welcome_attempted()
+    await quiet.service.stop()
+    paused = harness(state_db=path)
+    paused.limiter.set_global_factor(0)
+    await paused.service.start()
+    await until(lambda: paused.service._startup_announcement_task in paused.service._requests)
+    assert not paused.service._state_store.welcome_attempted()
+    await paused.service.stop()
+    active = harness(state_db=path)
+    await active.service.start()
+    await asyncio.wait_for(active.service._startup_announcement_task, 1)
+    assert len(active.sent) == 1
+    await active.service.stop()
+
+
+async def test_welcome_save_failure_prevents_radio_attempt(harness, tmp_path, monkeypatch):
+    from bot.storage import StateError
+    h = harness(state_db=str(tmp_path/'welcome.sqlite3'))
+    await h.service.prepare()
+    def fail():
+        raise StateError('disk full')
+    monkeypatch.setattr(h.service._state_store, 'claim_welcome', fail)
+    await h.service.start()
+    await asyncio.wait_for(h.service._startup_announcement_task, 1)
+    assert not h.sent and not h.service._state_store.welcome_attempted()
+    await h.service.stop()
+
+
+async def test_three_channel_first_welcomes_and_independent_versions(tmp_path, monkeypatch):
+    import io
+    from bot.cli import build_service
+    from bot.jsonlog import EventLog
+    from bot.traffic.channel import TrafficChannel
+    from tests.test_channels import ChannelRadio
+    from tests.test_chess import FakeEngine
+    from tests.test_traffic_channel import FakeAPI
+    monkeypatch.setattr('bot.cli.make_backend', lambda cfg: FakeBackend())
+    monkeypatch.setattr('bot.chess_engine.Stockfish', lambda *args: FakeEngine())
+    monkeypatch.setattr('bot.traffic.api.Wisconsin511', FakeAPI)
+    monkeypatch.setattr(TrafficChannel, 'start', lambda self: None)
+    monkeypatch.setattr('bot.traffic.TrafficCache.start', lambda self: None)
+    cfg = make_config(chess_channel_idx=3, traffic_channel_idx=2,
+                      state_db=str(tmp_path/'all.sqlite3'), global_burst=10, sender_burst=10)
+    for launch in range(2):
+        radio = ChannelRadio()
+        radio.commands.names.update({2: '#traffic', 3: '#chess'})
+        service = build_service(cfg, radio, EventLog(stream=io.StringIO()), references=())
+        try:
+            await service.start()
+            await asyncio.wait_for(asyncio.gather(*(s._startup_announcement_task for s in service.services.values())), 1)
+            sent = dict(radio.commands.sent)
+            if launch == 0:
+                assert set(sent) == {1, 2, 3}
+                assert 'Mesh Potato Traffic v1.0:' in sent[2]
+                assert 'Mesh Potato Chess v1.0:' in sent[3]
+                assert f'v{__version__}:' in sent[1]
+                assert all(len(('MeshAI: '+text).encode()) <= 160 for text in sent.values())
+                await radio.deliver('Alice: version', 2)
+                assert 'Traffic v1.0' in radio.commands.sent[-1][1]
+                await radio.deliver('Alice: about', 3)
+                assert 'Chess v1.0' in radio.commands.sent[-1][1]
+            else:
+                assert not sent
+        finally:
+            await service.stop()
+        # Package and service version changes do not replay a welcome.
+        monkeypatch.setattr('bot.channel_info.CHESS_VERSION', '1.1')
+        monkeypatch.setattr('bot.service.__version__', '9.0.0')
+
+
+async def test_ai_welcome_does_not_offer_traffic_when_redirecting(harness):
+    h = harness(traffic_redirect=True, web_enabled=True)
+    await h.service.start()
+    await asyncio.wait_for(h.service._startup_announcement_task, 1)
+    assert len(h.sent) == 1
+    assert 'weather, sports, radio' in h.sent[0][1]
+    assert 'traffic' not in h.sent[0][1]
+    await h.service.stop()

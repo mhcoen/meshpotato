@@ -86,12 +86,16 @@ def examples(cfg):
     """Only advertise enabled features, with the actual configured syntax."""
     result = []
     for identifier, category, template in TIPS:
+        if cfg.redirects_traffic and identifier.startswith('traffic-'):
+            continue
         if identifier == 'traffic-age' and not cfg.traffic_enabled:
             continue
         if category == 'web' and not cfg.web_enabled:
             continue
         if identifier == 'intro' and not cfg.web_enabled:
             template = 'Ask about radio, science, poems, jokes, or games. Try "{ask}What can you do?"'
+        elif identifier == 'intro' and cfg.redirects_traffic:
+            template = 'Ask about weather, sports, radio or poems here. For traffic, visit #traffic. Try "{command}help".'
         text = 'Potato tip: ' + template.format(ask=cfg.trigger_prefix,
                                               command=cfg.trigger_prefix + cfg.command_prefix)
         if len(text) <= cfg.reply_max_chars and len((cfg.bot_name + ': ' + text).encode()) <= 160:

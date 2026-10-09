@@ -71,3 +71,39 @@ the bot and move the database aside; startup creates a new one. Do not replace
 or copy a live database file as a backup: use SQLite's backup facility if the
 bot must stay running. Old backups retain the conversations they contained,
 including any personal memory forgotten since the backup.
+
+## Channel service state
+
+Each channel has its own database. The primary channel uses `state_db`; additional
+slots use neighboring files such as `meshpotato.channel-2.sqlite3`. Back up all
+of them when preserving AI, chess and traffic state together.
+
+The existing database format gains tables without discarding saved conversations:
+
+| Table | Saved state |
+| --- | --- |
+| `usage_tips` | Usage example rotation and attempted scheduling slots |
+| `chess_games` | One game per sender name, full move history, restart confirmation and recent packet receipts |
+| `traffic_state` | First feed initialization, versioned alert fingerprints, derived hazard/closure/lane facts and claim times |
+| `startup_welcome` | Whether this channel has attempted its first welcome |
+
+Chess commits a completed turn before attempting its reply. Traffic and welcome
+receipts are committed immediately before a radio attempt, after admission and
+content checks. An ambiguous send failure does not erase these receipts or cause
+a retry after restart. Database generation checks apply to these writes too.
+Chess and traffic require persistent storage.
+
+Traffic reports rejected before transmission are remembered only in memory.
+They may be checked again after restart, but do not block other eligible reports.
+The live feed snapshot and current alert browsing position are not persisted.
+Moving a database aside also resets its welcomes, alert receipts and saved games;
+do not discard it simply to restart the program.
+
+Traffic fingerprint version 2 migrates older receipts lazily by identifier when
+that report next appears in a successful poll. The new facts are saved silently,
+keeping the previous claim time. An unseen identifier is not baselined during
+migration. Changed reports normally wait 30 minutes between attempts, except
+for closure status changes, hazard set changes or an increase in blocked lanes.
+The interval and exception facts survive restart. A deliberately suppressed
+initial backlog is marked as unattempted, so its first later material change is
+not subject to a repeat interval for a transmission that never happened.

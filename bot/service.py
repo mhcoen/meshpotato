@@ -33,6 +33,7 @@ from typing import Any
 from meshcore import EventType
 
 from bot import __version__
+from bot.channel_info import identity as channel_identity, welcome as channel_welcome
 from bot.activity import Activity, REASONS as ACTIVITY_REASONS, ACTIVITY_BEGIN, ACTIVITY_END
 from bot.backends import Backend, Completion
 from bot.config import Config, WIRE_TEXT_MAX
@@ -55,7 +56,7 @@ from bot.text_safety import forged_frame, safe_sender, transcript_field
 from bot.ratelimit import RateLimiter, Reservation
 from bot.reception import RECEPTION_VOICE, asks_about_reception, reception_context, is_plain_reception_report
 from bot.reply import compose_reply, shape_reply, reply_prefix, reply_body_room, plain_ascii
-from bot.traffic import cached_traffic_direction, traffic_clarification, traffic_followup
+from bot.traffic import cached_traffic_direction, traffic_clarification, traffic_followup, is_traffic_question
 from bot.triage import is_reaction, mentions_someone, social_acknowledgment
 from bot.lifecycle import close_step, disconnect
 from bot.storage import StateError, StateStore
@@ -70,6 +71,9 @@ DIRECT_REPLY_RESET_S = 60
 
 class Decision(str, Enum):
     ANSWERED = "answered"
+    ANSWERED_CHESS = "answered:chess"
+    ANSWERED_TRAFFIC_CHANNEL = "answered:traffic-channel"
+    IGNORED_CHESS_DUPLICATE = "ignored:chess-duplicate"
     ANSWERED_FALLBACK = "answered:too-long-fallback"
     ANSWERED_RECOVERY = "answered:recovery"
     ANSWERED_HELP = "answered:help"
@@ -154,6 +158,7 @@ class PendingReply:
     traffic_direction: str | None = None
     program_reply: str = ""
     weather_reply: str = ""
+    before_send: Callable[[], None] | None = None
     weather_expires_at: float | None = None
     recovery_context: list[dict[str, str]] | None = None
     recovery_entries: list[HistoryEntry] | None = None
@@ -276,6 +281,9 @@ class BotService:
         self._activity_sequence = 0
         self.web = WebLookup()
         self.traffic = None  # CLI attaches the optional background cache
+        self.chess = None  # optional isolated chess handler; never calls the chat model
+        self.traffic_channel = None
+        self.traffic_destination = None
         self._traffic_clarifications: OrderedDict[str, float] = OrderedDict()
         self.tips = None
         self._last_channel_activity = self._clock()
@@ -355,6 +363,22 @@ class BotService:
             self._update_memory_stats()
             self.log.emit("state_restored", history=len(self.history), people=self.memory.people,
                           rounds=self.memory.total_rounds, **discarded)
+        if self.chess is not None:
+            if name.lstrip('#').lower() != 'chess':
+                raise ChannelError(f'chess_channel_idx points to {name!r}; create/select the chess channel first')
+            try:
+                await self.chess.prepare(self._state_store)
+            except (StateError, RuntimeError) as exc:
+                raise ChannelError(f'chess startup: {exc}') from exc
+            self.stats.persona = 'chess'
+        if self.traffic_channel is not None:
+            if name.lstrip('#').lower() != 'traffic':
+                raise ChannelError(f'traffic_channel_idx points to {name!r}; create/select the traffic channel first')
+            try:
+                self.traffic_channel.prepare(self._state_store)
+            except (StateError, RuntimeError) as exc:
+                raise ChannelError(f'traffic startup: {exc}') from exc
+            self.stats.persona = 'traffic'
         self._prepared = True
 
     async def _start(self) -> None:
@@ -365,7 +389,7 @@ class BotService:
             channel_idx=self.cfg.channel_idx,
             channel_name=self.stats.channel_name,
             bot_name=self.cfg.bot_name,
-            version=__version__,
+            version=channel_identity(self.stats.persona)[1] if self.stats.persona in {'chess', 'traffic'} else __version__,
             backend=self.backend.name,
             model=self.cfg.model,
             trigger_prefix=self.cfg.trigger_prefix,
@@ -399,6 +423,8 @@ class BotService:
                 self.tips.start()
             except (StateError, ValueError) as exc:
                 self.log.emit('tip_error', error=str(exc))
+        if self.traffic_channel is not None:
+            self.traffic_channel.start()
         self._memory_task = asyncio.create_task(self._memory_gc(), name="memory-gc")
         if self._state_store is not None:
             self._state_task = asyncio.create_task(self._save_state_periodically(), name="state-save")
@@ -409,12 +435,20 @@ class BotService:
 
     async def _announce_startup(self) -> None:
         try:
+            if self.cfg.announce_once and self._state_store is not None and self._state_store.welcome_attempted():
+                return
             name = plain_ascii(self.cfg.bot_name) or "Mesh Potato"
             capabilities = 'weather, sports, traffic, radio, or a poem' if self.cfg.web_enabled else 'radio, science, jokes, or a poem'
+            if self.cfg.redirects_traffic:
+                capabilities = capabilities.replace('traffic, ', '')
             prefix = self.cfg.trigger_prefix + self.cfg.command_prefix
             text = f'{name} v{__version__}: Ask about {capabilities}. Try {prefix}help for examples.'
+            kind = 'chess' if self.chess is not None else 'traffic' if self.traffic_channel is not None else None
+            if kind:
+                name, version = channel_identity(kind)
+                text = channel_welcome(kind, counties=self.cfg.traffic_counties)
             if len(text) > self.cfg.reply_max_chars or len(text.encode()) > self._reply_max_bytes:
-                text = f'{name} is here! Try {prefix}help for examples.'
+                text = f'{name} v{version}: Say help.' if kind else f'{name} is here! Try {prefix}help for examples.'
             if len(text) > self.cfg.reply_max_chars or len(text.encode()) > self._reply_max_bytes:
                 self.log.emit('announce_failed', what='startup', reason='introduction exceeds wire budget')
                 return
@@ -452,7 +486,7 @@ class BotService:
         self._state_task = None
         await self._cancel_persona_timer()
         shared_workers = (self.traffic, self.monitor) if self._manage_shared_workers else ()
-        for worker in (self.tips, self.fortune, *shared_workers):
+        for worker in (self.chess, self.traffic_channel, self.tips, self.fortune, *shared_workers):
             if worker is not None:
                 await close_step(worker.stop, self.shutdown_timeout_s, self.log)
         if not self._managed_radio:
@@ -706,6 +740,10 @@ class BotService:
         if invalid_sender:
             return self._record(parsed, path_len, Decision.DROP_EMPTY, reason="invalid sender mention")
         activity.excerpt = transcript_field(parsed.body)[:160]
+        if self.chess is not None:
+            return await self._handle_chess(parsed, payload, received_at)
+        if self.traffic_channel is not None:
+            return await self._handle_traffic_channel(parsed, payload, received_at)
 
         # A reply addressed to us is a direct request, including app reply-button
         # messages. Other addressed replies and our own echoed sends stay ignored.
@@ -791,6 +829,19 @@ class BotService:
                 injection_error=verdict.error,
             )
         prompt = verdict.text  # sanitized form when that mode is on
+        if self.traffic_destination and is_traffic_question(prompt):
+            limit = await self._wait_for_admission(parsed.sender, received_at)
+            if not limit.allowed:
+                return self._queue_drop(parsed, path_len, limit.reason)
+            text = 'Traffic has its own #traffic channel. Ask there for travel times, closures and incident reports.'
+            reply = compose_reply(parsed.sender, text, cfg.reply_max_chars, max_bytes=self._reply_max_bytes)
+            if reply is None:
+                return self._record(parsed, path_len, Decision.DROP_EMPTY)
+            await self._hold_for_quiet_channel(received_at)
+            sent = await self._send(reply, mention_sender=parsed.sender)
+            if sent:
+                self.stats.replies_sent += 1
+            return self._record(parsed, path_len, Decision.ANSWERED_TRAFFIC_CHANNEL if sent else Decision.DROP_SEND_FAILED, reply=reply)
         traffic_asked_at = self._traffic_clarifications.pop(parsed.sender, None)
         if (self.cfg.web_enabled and self.cfg.traffic_enabled and not explicit_web
                 and traffic_asked_at is not None and 0 <= self._clock() - traffic_asked_at <= 120):
@@ -1079,6 +1130,83 @@ class BotService:
         return self._record(parsed, path_len, Decision.DROP_SEND_FAILED, reply=reply, latency_ms=latency_ms)
 
     # ------------------------------------------------------------------ helpers
+
+    async def _handle_traffic_channel(self, parsed, payload, received_at):
+        prompt = parsed.body.strip()
+        address = f'@[{self.cfg.bot_name}]'
+        if prompt.startswith(address):
+            prompt = prompt[len(address):].lstrip(' ,:')
+        if '@[' in prompt:
+            return self._record(parsed, payload.get('path_len'), Decision.DROP_ADDRESSED_ELSEWHERE)
+        if len(prompt) > self.cfg.prompt_max_chars:
+            return self._record(parsed, payload.get('path_len'), Decision.DROP_TOO_LONG)
+        limit = await self._wait_for_admission(parsed.sender, received_at)
+        if not limit.allowed:
+            return self._queue_drop(parsed, payload.get('path_len'), limit.reason)
+        available = reply_body_room(parsed.sender, self.cfg.reply_max_chars, self._reply_max_bytes)
+        answer = self.traffic_channel.answer(prompt, available, parsed.sender)
+        reply = compose_reply(parsed.sender, answer, self.cfg.reply_max_chars, max_bytes=self._reply_max_bytes)
+        if reply is None:
+            return self._record(parsed, payload.get('path_len'), Decision.DROP_EMPTY)
+        await self._hold_for_quiet_channel(received_at)
+        sent = await self._send(reply, mention_sender=parsed.sender)
+        if sent:
+            self.stats.replies_sent += 1
+        return self._record(parsed, payload.get('path_len'), Decision.ANSWERED_TRAFFIC_CHANNEL if sent else Decision.DROP_SEND_FAILED, reply=reply)
+
+    async def post_traffic_alert(self, text, claim, can_send):
+        def eligible():
+            current = asyncio.current_task()
+            return (not self._stopped and can_send() and self.limiter.global_factor > 0
+                    and not self._waiting and not any(task is not current for task in self.reply_queue.requests)
+                    and self._clock()-self._last_channel_activity >= self.cfg.reply_delay_s)
+        if not eligible():
+            return 'busy-or-expired'
+        async with self._request(self.cfg.bot_name, eligible) as state:
+            try:
+                self._check(text, 'traffic-alert')
+                if not self._admit(self.cfg.bot_name).allowed:
+                    return 'rate-limited'
+                state.before_send = claim
+                if not await self._send(text):
+                    return 'send-failed'
+                self.stats.posts_sent += 1
+                return 'sent'
+            except InjectionBlocked:
+                return 'blocked'
+            except (PostExpired, TransmissionPaused):
+                return 'expired'
+
+    async def _handle_chess(self, parsed, payload, received_at):
+        text = parsed.body.strip()
+        address = f'@[{self.cfg.bot_name}]'
+        if text.startswith(address):
+            text = text[len(address):].lstrip(' ,:')
+        if '@[' in text:
+            return self._record(parsed, payload.get('path_len'), Decision.DROP_ADDRESSED_ELSEWHERE)
+        if len(text) > self.cfg.prompt_max_chars:
+            return self._record(parsed, payload.get('path_len'), Decision.DROP_TOO_LONG)
+        available = reply_body_room(parsed.sender, self.cfg.reply_max_chars, self._reply_max_bytes)
+        if available < 80:
+            return self._record(parsed, payload.get('path_len'), Decision.DROP_EMPTY, reason='sender-name leaves no room for chess reply')
+        limit = await self._wait_for_admission(parsed.sender, received_at)
+        if not limit.allowed:
+            return self._queue_drop(parsed, payload.get('path_len'), limit.reason)
+        try:
+            answer = await self.chess.respond(parsed.sender, text, payload.get('sender_timestamp'), available)
+        except StateError as exc:
+            self.log.emit('chess_state_error', error=str(exc))
+            answer = 'I could not safely save or restore your chess game. Your saved game is preserved; please contact the operator.'
+        if answer is None:
+            return self._record(parsed, payload.get('path_len'), Decision.IGNORED_CHESS_DUPLICATE)
+        reply = compose_reply(parsed.sender, answer, self.cfg.reply_max_chars, max_bytes=self._reply_max_bytes)
+        if reply is None:
+            return self._record(parsed, payload.get('path_len'), Decision.DROP_EMPTY)
+        await self._hold_for_quiet_channel(received_at)
+        sent = await self._send(reply, mention_sender=parsed.sender)
+        if sent:
+            self.stats.replies_sent += 1
+        return self._record(parsed, payload.get('path_len'), Decision.ANSWERED_CHESS if sent else Decision.DROP_SEND_FAILED, reply=reply)
 
     async def _answer_cached_traffic(self, parsed, path_len, prompt, received_at, direction):
         state = self._requests[asyncio.current_task()]
@@ -1815,6 +1943,10 @@ class BotService:
         async with self._request(self.cfg.bot_name):
             try:
                 self._check(text, "reply")
+                if what == 'startup' and self.cfg.announce_once and self._state_store is not None:
+                    if self._state_store.welcome_attempted():
+                        return False
+                    self._requests[asyncio.current_task()].before_send = self._state_store.claim_welcome
                 return await self._announce_when_allowed(text, what, give_up_after_s)
             except InjectionBlocked as exc:
                 self.log.emit("injection_block", point="reply", what=what, error=exc.verdict.error,
@@ -1928,6 +2060,9 @@ class BotService:
             self.log.emit("send_error", error="unsafe content, invalid mention, non-ASCII body, or outgoing line exceeds the wire budget")
             self.stats.send_errors += 1
             return False
+        if state.before_send is not None:
+            state.before_send()
+            state.before_send = None
         if state.activity is not None:
             state.activity.move("sending", self._clock())
             state.activity.send_attempted = True

@@ -81,23 +81,45 @@ def build_service(cfg: Config, meshcore, log: EventLog, references: tuple[Refere
             duty_high=cfg.duty_high,
             tx_budget=cfg.tx_duty_budget,
         )
-    service = BotService(
-        cfg=cfg.for_channel(cfg.channel_idx),
-        meshcore=meshcore,
-        backend=make_backend(cfg),
-        gate=InjectionGate(threshold=cfg.injection_threshold),
-        limiter=limiter,
-        history=History(cfg.history_size),
-        log=ChannelLog(log, cfg.channel_idx) if cfg.additional_channels else log,
-        monitor=monitor,
-        references=references,
-        managed_radio=bool(cfg.additional_channels),
-    )
-    if cfg.web_enabled and cfg.traffic_enabled:
-        service.traffic = TrafficCache(log, refresh_s=cfg.traffic_refresh_s)
-    if cfg.tips_enabled:
+    services = {}
+    multi = len(cfg.channel_indices) > 1
+    for idx in cfg.channel_indices:
+        channel_cfg = cfg.for_channel(idx)
+        games = None
+        if idx == cfg.chess_channel_idx:
+            try:
+                from bot.chess_game import ChessGames
+                from bot.chess_engine import Stockfish
+            except ImportError as exc:
+                raise ChannelError('Chess requires the optional dependency: pip install -e ".[chess]"') from exc
+            games = ChessGames(Stockfish(cfg.chess_engine_path, cfg.chess_think_s), max_games=cfg.chess_max_games)
+            backend = ChessBackend()
+        elif idx == cfg.traffic_channel_idx:
+            backend = TrafficBackend()
+        else:
+            backend = make_backend(channel_cfg)
+        child = BotService(
+            cfg=channel_cfg, meshcore=meshcore, backend=backend,
+            gate=InjectionGate(threshold=cfg.injection_threshold), limiter=limiter,
+            history=History(cfg.history_size), log=ChannelLog(log, idx) if multi else log, monitor=monitor,
+            references=references, reply_queue=next(iter(services.values())).reply_queue if services else None,
+            managed_radio=multi, manage_shared_workers=not services,
+        )
+        child.chess = games
+        child.traffic_destination = '#traffic' if channel_cfg.redirects_traffic else None
+        if idx == cfg.traffic_channel_idx:
+            from bot.traffic.api import Wisconsin511
+            from bot.traffic.channel import TrafficChannel
+            child.traffic_channel = TrafficChannel(child, Wisconsin511())
+        services[idx] = child
+    service = services[cfg.channel_idx]
+    if cfg.traffic_enabled and (cfg.traffic_channel_idx >= 0 or cfg.web_enabled and any(child.chess is None for child in services.values())):
+        traffic = TrafficCache(log, refresh_s=cfg.traffic_refresh_s)
+        for child in services.values():
+            child.traffic = traffic
+    if service.cfg.tips_enabled:
         service.tips = UsageTipScheduler(service, service.log)
-    if cfg.fortune_enabled:
+    if service.cfg.fortune_enabled:
         service.fortune = FortuneScheduler(
             service=service,
             log=service.log,
@@ -108,21 +130,26 @@ def build_service(cfg: Config, meshcore, log: EventLog, references: tuple[Refere
             prompt=cfg.fortune_prompt,
             fallback=cfg.fortune_fallback,
         )
-    if not cfg.additional_channels:
+    if not multi:
         return service
-    services = {cfg.channel_idx: service}
-    for idx in cfg.additional_channels:
-        channel_cfg = cfg.for_channel(idx)
-        child = BotService(
-            cfg=channel_cfg, meshcore=meshcore, backend=make_backend(channel_cfg),
-            gate=InjectionGate(threshold=cfg.injection_threshold), limiter=limiter,
-            history=History(cfg.history_size), log=ChannelLog(log, idx), monitor=monitor,
-            references=references, reply_queue=service.reply_queue,
-            managed_radio=True, manage_shared_workers=False,
-        )
-        child.traffic = service.traffic
-        services[idx] = child
     return MultiChannelService(cfg, meshcore, services, log)
+
+
+class ChessBackend:
+    name = 'stockfish'
+
+    async def complete(self, *args, **kwargs):
+        raise RuntimeError('Chess must not call a chat model')
+
+    async def aclose(self):
+        pass  # The chess worker owns and closes its engine.
+
+
+class TrafficBackend(ChessBackend):
+    name = 'wisconsin511'
+
+    async def complete(self, *args, **kwargs):
+        raise RuntimeError('Traffic alerts must not call a chat model')
 
 
 class ConnectError(RuntimeError):
@@ -239,7 +266,11 @@ async def _run(cfg: Config, headless: bool, log: EventLog, references: tuple[Ref
         return 2
     service = None
     try:
-        service = build_service(cfg, meshcore, log, references)
+        try:
+            service = build_service(cfg, meshcore, log, references)
+        except ChannelError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 3
         return await _run_connected(cfg, service, headless, log)
     finally:
         if service is not None:

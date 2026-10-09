@@ -342,5 +342,8 @@ async def test_queue_expired_and_full_render_in_terminal(queued):
     app = MeshPotatoApp(h.cfg, s, h.limiter, lambda listener: None, h.service.start, h.service.stop)
     async with app.run_test() as pilot:
         await pilot.pause()
+        # Startup can change queue counters; render the synthetic state after it settles.
+        s.queue_depth, s.queue_expired, s.queue_full = 3, 2, 1
+        app._refresh_panels()
         text = str(app.query_one("#limits").render())
         assert "queue 3/10" in text and "expired 2, queue-full 1" in text

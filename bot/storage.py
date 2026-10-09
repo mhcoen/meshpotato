@@ -81,6 +81,9 @@ class StateStore:
             self._generation = meta[0][1]
             with db:
                 db.execute("CREATE TABLE IF NOT EXISTS usage_tips (id INTEGER PRIMARY KEY CHECK(id=1), last_slot TEXT, used TEXT)")
+                db.execute("CREATE TABLE IF NOT EXISTS chess_games (sender TEXT PRIMARY KEY, state TEXT NOT NULL)")
+                db.execute("CREATE TABLE IF NOT EXISTS traffic_state (id INTEGER PRIMARY KEY CHECK(id=1), state TEXT NOT NULL)")
+                db.execute("CREATE TABLE IF NOT EXISTS startup_welcome (id INTEGER PRIMARY KEY CHECK(id=1))")
         except (sqlite3.Error, OSError, ValueError, StateError) as exc:
             self.close()
             raise StateError(f"{path}: {exc}") from exc
@@ -191,6 +194,70 @@ class StateStore:
             self._generation += 1
         except sqlite3.Error as exc:
             raise StateError(f"cannot save usage tips: {exc}") from exc
+
+    def load_chess(self, sender: str) -> dict | None:
+        try:
+            row = self._db.execute("SELECT state FROM chess_games WHERE sender=?", (sender,)).fetchone()
+            if row is None:
+                return None
+            state = json.loads(row[0])
+            if not isinstance(state, dict) or state.get('version') != 1:
+                raise ValueError('unsupported chess state')
+            return state
+        except (sqlite3.Error, ValueError, TypeError) as exc:
+            raise StateError(f"cannot restore chess game: {exc}") from exc
+
+    def save_chess(self, sender: str, state: dict, max_games: int) -> None:
+        """Commit game and receipt together before any radio send is attempted."""
+        try:
+            with self._db:
+                updated = self._db.execute("UPDATE metadata SET generation=generation+1 WHERE generation=?", (self._generation,))
+                if updated.rowcount != 1:
+                    raise StateError("state changed by another bot; use a separate state_db file")
+                exists = self._db.execute("SELECT 1 FROM chess_games WHERE sender=?", (sender,)).fetchone()
+                if not exists and self._db.execute("SELECT count(*) FROM chess_games").fetchone()[0] >= max_games:
+                    raise StateError("chess game capacity reached; existing games are preserved")
+                self._db.execute("INSERT OR REPLACE INTO chess_games VALUES (?, ?)", (sender, json.dumps(state)))
+            self._generation += 1
+        except sqlite3.Error as exc:
+            raise StateError(f"cannot save chess game: {exc}") from exc
+
+    def load_traffic(self) -> dict | None:
+        try:
+            row = self._db.execute("SELECT state FROM traffic_state WHERE id=1").fetchone()
+            return json.loads(row[0]) if row else None
+        except (sqlite3.Error, ValueError, TypeError) as exc:
+            raise StateError('cannot restore traffic announcement state') from exc
+
+    def save_traffic(self, state: dict) -> None:
+        try:
+            with self._db:
+                updated = self._db.execute("UPDATE metadata SET generation=generation+1 WHERE generation=?", (self._generation,))
+                if updated.rowcount != 1:
+                    raise StateError('state changed by another bot; use a separate state_db file')
+                self._db.execute("INSERT OR REPLACE INTO traffic_state VALUES (1, ?)", (json.dumps(state),))
+            self._generation += 1
+        except sqlite3.Error as exc:
+            raise StateError('cannot save traffic announcement state') from exc
+
+    def welcome_attempted(self) -> bool:
+        try:
+            return self._db.execute('SELECT 1 FROM startup_welcome WHERE id=1').fetchone() is not None
+        except sqlite3.Error as exc:
+            raise StateError('cannot restore welcome history') from exc
+
+    def claim_welcome(self) -> None:
+        """Commit before the radio attempt; ambiguous sends must not replay."""
+        try:
+            with self._db:
+                updated = self._db.execute(
+                    'UPDATE metadata SET generation=generation+1 WHERE generation=?', (self._generation,))
+                if updated.rowcount != 1:
+                    raise StateError('state changed by another bot; use a separate state_db file')
+                self._db.execute('INSERT INTO startup_welcome VALUES (1)')
+            self._generation += 1
+        except sqlite3.Error as exc:
+            raise StateError('cannot save welcome history') from exc
 
     def close(self) -> None:
         if self._db is not None:

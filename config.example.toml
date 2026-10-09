@@ -9,8 +9,15 @@ port = "/dev/cu.usbserial-0001"   # required; the MeshCore USB companion
 channel_idx = 1                   # must exist on the radio; the bot refuses to start otherwise
 additional_channels = []         # optional extra radio slots, e.g. [2, 3]; each runs an isolated AI chat
 
+[chess]
+chess_channel_idx = -1            # disabled; set to the existing chess/#chess radio slot to enable
+chess_engine_path = "stockfish"   # executable on PATH, or an absolute path; install separately
+chess_think_s = 0.2               # engine time per move/analysis, 0.05 to 2 seconds
+chess_max_games = 1000            # saved players; never evicts another player's game
+
 [bot]
-announce_startup = true           # false skips the opening channel message; --no-announce overrides this
+announce_startup = true           # enable first launch welcomes; --no-announce suppresses all
+announce_once = true              # remember each channel welcome across restarts (requires state_db)
 bot_name = "Mesh Potato"               # MUST equal the radio's node name (loop guard depends on it)
 trigger_prefix = ""               # "" answers every message except reactions and lines meant for someone else; "!ai " for shared channels
 # Reply size is calculated automatically from the UTF-8 length of bot_name.
@@ -41,6 +48,11 @@ web_enabled = true              # automatic current-information lookup and /web;
 web_location = "Madison, Wisconsin"  # used only for local weather/hours questions without a location
 
 [traffic]
+traffic_channel_idx = -1        # set to the existing #traffic slot to enable its dedicated handler
+traffic_counties = "Dane"       # comma-separated counties for significant alerts
+traffic_lookahead_h = 24.0       # include major scheduled closures this many hours ahead
+traffic_announce_existing = true # first successful startup includes important current/upcoming reports
+# API key: WI511_API_KEY in the process environment, never in this file.
 traffic_enabled = true          # prefetch Madison Beltline and I-90 (Beltline to I-94); no API key or model call
 traffic_refresh_s = 300.0        # every five minutes; reports older than ten minutes show source times/dates
 

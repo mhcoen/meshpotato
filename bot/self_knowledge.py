@@ -30,7 +30,9 @@ def runtime_reference(cfg):
             f'{p}reset restores that voice for everyone. '
             f'{p}forget clears personal memory for the sender, not shared history or logs. '
             f'{p}roll rolls dice; {p}magic8 gives a playful random answer, not a prediction. '
-            f'Memory retains up to {cfg.person_memory_rounds} answered exchanges per sender for '
+            + ('Traffic questions belong in #traffic, not this AI channel. Direct users there for traffic reports. '
+               if cfg.redirects_traffic else '')
+            + f'Memory retains up to {cfg.person_memory_rounds} answered exchanges per sender for '
             f'{cfg.person_memory_days:g} days; shared history expires after {cfg.history_max_age_s:g} seconds. '
             + (f'Web search is enabled, automatically or with {p}web. This bot provides live sports scores, '
                'standings, records and upcoming games for NFL, NBA, WNBA, MLB and NHL using structured ESPN feeds. '

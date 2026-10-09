@@ -11,3 +11,5 @@ config.toml
 *.sqlite3-wal
 *.sqlite3-shm
 .env
+build/
+widget-logs*/

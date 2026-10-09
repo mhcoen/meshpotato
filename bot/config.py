@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import math
+import re
 import tomllib
 from collections.abc import Mapping
 from dataclasses import dataclass, field, fields, replace
@@ -46,9 +47,16 @@ class Config:
     channel_idx: int = 1
     additional_channels: tuple[int, ...] = ()
 
+    # [chess] -1 leaves chess disabled; its slot is automatically served.
+    chess_channel_idx: int = -1
+    chess_engine_path: str = "stockfish"
+    chess_think_s: float = 0.2
+    chess_max_games: int = 1000
+
     # [bot]
     bot_name: str = "Mesh Potato"
     announce_startup: bool = True
+    announce_once: bool = True
     trigger_prefix: str = ""
     reply_max_chars: int | None = None
     prompt_max_chars: int = 160
@@ -84,6 +92,11 @@ class Config:
     # [traffic] Public 511 Beltline travel-time cache; requires web_enabled.
     traffic_enabled: bool = True
     traffic_refresh_s: float = 300.0
+    traffic_channel_idx: int = -1
+    traffic_redirect: bool = False  # retained in AI child configurations
+    traffic_counties: str = "Dane"
+    traffic_lookahead_h: float = 24.0
+    traffic_announce_existing: bool = True
 
     # [tips] Two low-priority usage examples per day, in host local time.
     tips_enabled: bool = True
@@ -162,9 +175,32 @@ class Config:
             errors.append("port is required (radio.port or MESHPOTATO_PORT)")
         if not 0 <= self.channel_idx <= 255:
             errors.append("channel_idx must be in 0..255")
+        if not -1 <= self.chess_channel_idx <= 255:
+            errors.append("chess_channel_idx must be -1 (disabled) or a slot in 0..255")
+        if not -1 <= self.traffic_channel_idx <= 255:
+            errors.append("traffic_channel_idx must be -1 (disabled) or a slot in 0..255")
+        if self.traffic_channel_idx >= 0:
+            if self.traffic_channel_idx == self.chess_channel_idx:
+                errors.append("chess and traffic require different channel slots")
+            if not self.state_db or self.state_db == ":memory:":
+                errors.append("traffic announcements require a persistent state_db file")
+        if not 1 <= self.traffic_lookahead_h <= 72:
+            errors.append("traffic_lookahead_h must be between 1 and 72 hours")
+        if (not self.traffic_counties.strip() or len(self.traffic_counties) > 160
+                or any(not re.fullmatch(r'[A-Za-z .-]+', c.strip()) for c in self.traffic_counties.split(','))):
+            errors.append("traffic_counties must be comma-separated county names")
+        if not 0.05 <= self.chess_think_s <= 2.0:
+            errors.append("chess_think_s must be between 0.05 and 2 seconds")
+        if not 1 <= self.chess_max_games <= 10000:
+            errors.append("chess_max_games must be in 1..10000")
+        if self.chess_channel_idx >= 0:
+            if not self.chess_engine_path.strip():
+                errors.append("chess_engine_path is required for chess")
+            if not self.state_db or self.state_db == ":memory:":
+                errors.append("chess requires a persistent state_db file")
         if any(type(idx) is not int or not 0 <= idx <= 255 for idx in self.additional_channels):
             errors.append("additional_channels must contain integer slots in 0..255")
-        if len(set(self.channel_indices)) != len(self.channel_indices):
+        if len(set((self.channel_idx, *self.additional_channels))) != 1 + len(self.additional_channels):
             errors.append("channel slots must be unique, including channel_idx")
         if not self.bot_name.strip():
             errors.append("bot_name must not be empty")
@@ -308,10 +344,17 @@ class Config:
         return f" Try {self.trigger_prefix}{self.command_prefix}{HELP_COMMAND}."
 
     @property
+    def redirects_traffic(self) -> bool:
+        return self.traffic_redirect or (self.traffic_channel_idx >= 0 and self.channel_idx != self.traffic_channel_idx)
+
+    @property
     def help_message(self) -> str:
         prefix = self.trigger_prefix + self.command_prefix
         examples = ('weather | Packers record | Brewers next game | Beltline traffic | write a poem' if self.web_enabled
                     else 'write a poem | explain SNR | tell me a joke')
+        if self.redirects_traffic:
+            examples = 'weather | Packers record | write a poem' if self.web_enabled else 'write a poem | explain SNR'
+            return f'Ask: {examples}. Traffic: #traffic. {prefix}help topics for commands.'
         instruction = f' Start with {self.trigger_prefix.strip()}.' if self.trigger_prefix else ' No commands needed.'
         return f'Ask: {examples}.{instruction} {prefix}help topics for commands.'
 
@@ -343,21 +386,32 @@ class Config:
 
     @property
     def channel_indices(self) -> tuple[int, ...]:
-        return (self.channel_idx, *self.additional_channels)
+        slots = (self.channel_idx, *self.additional_channels)
+        for idx in (self.chess_channel_idx, self.traffic_channel_idx):
+            if idx >= 0 and idx not in slots:
+                slots += (idx,)
+        return slots
 
     def for_channel(self, idx: int) -> "Config":
         """Keep the primary database compatible; give every extra slot its own file."""
         if idx not in self.channel_indices:
             raise ConfigError(f"channel {idx} is not configured")
         primary = idx == self.channel_idx
+        chess = idx == self.chess_channel_idx
+        traffic = idx == self.traffic_channel_idx
+        specialized = chess or traffic
         path = self.state_db
         if not primary and path and path != ":memory:":
             p = Path(path)
             path = str(p.with_name(f"{p.stem}.channel-{idx}{p.suffix}"))
         return replace(self, channel_idx=idx, additional_channels=(), state_db=path,
-                       announce_startup=self.announce_startup and primary,
-                       tips_enabled=self.tips_enabled and primary,
-                       fortune_enabled=self.fortune_enabled and primary)
+                       chess_channel_idx=idx if chess else -1,
+                       traffic_channel_idx=idx if traffic else -1,
+                       traffic_redirect=(self.traffic_channel_idx >= 0 or self.traffic_redirect) and not specialized,
+                       web_enabled=self.web_enabled and not specialized,
+                       announce_startup=self.announce_startup and (primary or specialized),
+                       tips_enabled=self.tips_enabled and primary and not specialized,
+                       fortune_enabled=self.fortune_enabled and primary and not specialized)
 
 
 _FIELD_TYPES: dict[str, type] = {f.name: f.type for f in fields(Config)}  # type: ignore[misc]

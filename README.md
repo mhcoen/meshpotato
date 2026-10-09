@@ -14,6 +14,10 @@ can reach the model or the radio.
 It is a small Python package with no web interface or database server.
 A local SQLite file keeps recent conversations across restarts.
 
+This README covers the AI bot and shared program. Each additional service has
+its own instructions: [Chess README](docs/chess/README.md) and
+[Traffic README](bot/traffic/README.md).
+
 A live instance runs on the `#ai` channel of the MeshCore mesh in
 southern Wisconsin, centered on Madison. If you are on that mesh, add `#ai`
 in your MeshCore app and say something. It targets about 2 percent of the
@@ -23,11 +27,14 @@ queue, so a delayed answer can mean congestion rather than a fault.
 
 ## Screenshots
 
-What you see, in the terminal monitor: radio and channel state, rate limits,
-channel utilisation, and every message with the bot's decision on it
-(current UI with sample traffic):
+The terminal monitor shows shared radio status and separate channel panels.
+These screenshots use illustrative messages, not live reports:
 
-![The Mesh Potato terminal monitor](docs/tui.svg)
+![The Mesh Potato terminal monitor with three channel columns](docs/tui.svg)
+
+Narrow terminals use tabs:
+
+![The Mesh Potato terminal monitor with channel tabs](docs/tui-narrow.svg)
 
 ## Features
 
@@ -38,6 +45,11 @@ channel utilisation, and every message with the bot's decision on it
 - Per-person memory of recent exchanges, preserved across restarts so follow-up questions make sense.
   Overlapping exchanges appear only once in model context; `/forget` clears
   your personal memory, not the shared channel history
+- Optional [chess channel](docs/chess/README.md), with Stockfish, saved games per player,
+  adjustable difficulty, legal-move checks, hints, draw handling and restart recovery.
+- Optional [traffic channel](bot/traffic/README.md) for important Wisconsin 511
+  reports, with help, current alert lists, requested travel times and saved
+  announcement history across restarts.
 - A bundled [abbreviated README](bot/README.short.txt) in every model request,
   with facts from the running configuration about commands, capabilities, memory,
   privacy and limits. Common questions about sports support, model identity and
@@ -78,7 +90,8 @@ channel utilisation, and every message with the bot's decision on it
   as prior chat turns
 - Terminal monitor with a live message log, rate limiter state, channel
   utilisation, and counters; JSON lines log; headless mode for services
-- Introduces its name, version, capabilities, and help once at startup; clean shutdown on SIGINT
+- Introduces its name, version, capabilities, and help on first launch, remembering
+  the attempt across restarts when persistence is enabled; clean shutdown on SIGINT
   and SIGTERM
 - Tests that need no radio, no model, and no network
 
@@ -90,12 +103,12 @@ A configured custom command prefix works too. With the default presets:
 
 | Command | What it does |
 | --- | --- |
-| `!help` or `/help` | Shows example questions, including weather, sports and traffic when enabled |
+| `!help` or `/help` | Shows enabled examples; points traffic questions to #traffic when that channel is configured |
 | `!help topics` or `/help topics` | Lists command help topics and `about` |
 | `about`, `!about` or `/about` | Shows version, configured model and host/radio arrangement, plus the GitHub README link when the complete reply fits |
 | `!about source` or `/about source` | Gives the source repository link |
 | `!weather` or `/weather` | Gets the daily weather; `!wx` and `/wx` also work, with an optional location |
-| `!traffic` or `/traffic` | Requests traffic; Madison Beltline and I-90 questions use prepared reports; broad requests ask for a road |
+| `!traffic` or `/traffic` | Directs users to #traffic when configured; otherwise uses the AI traffic lookup described below |
 | `/help web` | Automatic searches and `/web` usage; the bot handles the internet connection and search |
 | `/help voices` | Lists the configured voice commands, without descriptions |
 | `/help fun` | Dice and Magic 8 Ball examples, plus daily fortunes when enabled |
@@ -125,7 +138,9 @@ sports, and traffic**, plus radio questions, poems, jokes, translations, games,
 and help. These are reviewed examples of what to ask; conversational answers
 still come from the model or live-data handlers. Morning tips rotate through
 weather, sports and traffic; evening tips cover the broader set of uses. If web
-lookup is disabled, both slots use the non-web examples.
+lookup is disabled, both slots use the non-web examples. When #traffic is
+configured, traffic question tips are omitted from AI and the introduction tip
+points to #traffic instead.
 
 Defaults are **10:00 a.m. and 6:00 p.m. in the host computer's local timezone**,
 with a random offset of up to five minutes. Each tip is one packet, needs no
@@ -286,10 +301,22 @@ use general web lookup. Weather provenance is recorded in `weather_lookup` logs.
 
 For Madison Beltline and I-90 traffic, the bot refreshes the public
 [Wisconsin 511 travel-time table](https://511wi.gov/list/traveltimes) at startup
-and every five minutes in the background. No API key is needed. Questions such as
+and every five minutes in the background. No API key is needed for these travel
+times. When the dedicated #traffic channel is enabled, all traffic answers and
+announcements go there; AI channels direct traffic questions to #traffic. AI help
+names that destination, and AI welcomes and usage tips stop inviting traffic
+questions on the AI channel. Traffic broadcasts compare derived incident facts,
+so cosmetic source edits stay quiet; repeat controls and receipt migration are
+documented in the traffic README.
+Setup, help commands, current alert browsing and announcement rules are in the
+[traffic README alongside its code](bot/traffic/README.md). Questions such as
 "What is the traffic on the Beltline?" and "Beltline eastbound delays?" use a
 prepared report for the University Avenue–I-39/90 corridor, without a foreground
-search or model call. `/web Beltline traffic?` also uses this cache. Example with
+search or model call. In the AI channel, these requests redirect when #traffic
+is configured. The examples and general web behavior below describe AI traffic
+lookup when the dedicated channel is disabled. #traffic uses the same corridor
+cache without source labels and does not use general web search for other roads.
+`/web Beltline traffic?` also uses the AI cache in that standalone setup. Example with
 **illustrative measurements**:
 
 > Beltline: Eastbound 22 min, 5 min delay (2 min ago). Westbound 17 min, no delay (2 min ago). Source: 511.
@@ -331,14 +358,18 @@ Replies say "yesterday" or give a date for older measurements.
 A failed refresh preserves the last known measurements without changing their
 times. If only one direction is available, the reply identifies the missing
 direction. The unavailable notice is reserved for missing or invalid data, or
-a report that cannot fit in the radio message. No traffic reports are broadcast
-unless someone asks, and normal reply spacing and congestion limits still apply.
+a report that cannot fit in the radio message. The travel time cache never broadcasts unsolicited reports; the dedicated
+#traffic service separately announces significant alerts. Normal reply spacing
+and congestion limits still apply.
 Specific exits, incidents, closures, other roads, and future traffic questions
 continue through general web lookup. Bare Beltline and I-90 requests use this cache only
 when `web_location` is Madison; explicitly naming Madison works from other defaults.
 Set `traffic_enabled = false` to disable prefetching, or change
 `traffic_refresh_s` (default `300`, allowed `60`–`600`). Disabling `web_enabled`
-also disables traffic prefetching. This public table is a website interface,
+also disables prefetching in an AI-only setup. A configured #traffic channel
+can still run its cache with web search disabled. `traffic_enabled = false`
+disables the travel time cache, not authenticated incident alerts. This public
+table is a website interface,
 so a site format change can make the cache unavailable until its parser is updated.
 
 For sports, ask "What's the score of the Packers game?" or use
@@ -537,8 +568,11 @@ and `pip` work the same way; pip equivalents are given where they differ.
    .venv/bin/pip install -e '.[dev]'
    ```
 
-   The dependencies are meshcore, ollama, httpx, textual, and confusables,
-   which supplies the Unicode look-alike table the injection detector uses.
+   Dependencies include meshcore, ollama, httpx, textual, the web retrieval
+   libraries and confusables, which supplies the Unicode look-alike table used
+   by the injection detector. The development extra also installs tests and the
+   chess Python library. The Stockfish executable is installed separately; see
+   the [Chess README](docs/chess/README.md).
 
 4. Check that the command exists:
 
@@ -703,8 +737,8 @@ file. `config.toml` is ignored by git.
 
 ### Multiple channels on one radio
 
-No channel choices are required now: leaving `additional_channels = []` preserves
-the existing single-channel setup. To serve more channels later, create them on
+Leaving `additional_channels = []` and both dedicated channel indices at `-1`
+preserves the single AI channel setup. To serve more channels later, create them on
 the companion radio and add their slot numbers under `[radio]`, for example:
 
 ```toml
@@ -714,9 +748,10 @@ channel_idx = 1
 additional_channels = [2, 3]
 ```
 
-These are example slot numbers, not required names. All configured slots currently
-run the AI chat handler. Chess and backgammon game management are future additions;
-selecting a channel does not install a game. Unlisted slots receive no bot replies.
+These are example slot numbers, not required names. Configured slots run the AI
+chat handler unless selected by `chess_channel_idx` or `traffic_channel_idx`.
+Those slots use their dedicated handlers. Backgammon is not implemented.
+Unlisted slots receive no bot replies.
 The bot checks every configured slot and its saved state before enabling replies,
 and rejects empty slots and duplicate channel keys. It does not create or rename
 radio channels. All logical channels use the radio's existing RF settings.
@@ -728,17 +763,29 @@ Replies from all channels share one bounded FIFO queue, one model-generation tur
 at a time, global and per-sender rate limits, and one radio load monitor. Adding
 channels does not multiply the airtime allowance; busy channels can increase the
 wait elsewhere. The traffic cache is refreshed once and shared across channels.
-Startup introductions, scheduled usage tips, and fortunes stay on `channel_idx`.
+AI introductions, scheduled usage tips, and fortunes stay on `channel_idx`.
+Chess and traffic each have their own first launch introduction. They never
+send AI usage tips or fortunes.
 
 The primary channel keeps the existing `state_db` file. Additional channels use
 neighboring files such as `meshpotato.channel-2.sqlite3`; back up these files too.
 Reordering `additional_channels` does not change their storage. Changing a slot's
 channel identity requires a fresh state file, as it does for a single channel.
-An empty `state_db` disables persistence for all channels.
+An empty `state_db` disables persistence for AI channels; chess and traffic require a file.
 
-In the terminal monitor, press **n** to cycle through channel statistics. The log
-shows events from every served channel with their slot number, and JSON events
-carry `channel_idx`. Environment configuration also works:
+The terminal monitor creates a message panel for every configured channel,
+including **AI**, **Chess** and **Traffic**. Wide terminals show the panels side by
+side, allowing at least 48 columns per channel. Narrower terminals show channel
+tabs. Click a tab or press **n** to switch channels and their statistics. Messages
+received in a hidden tab are retained; resizing rewraps the retained history.
+Each channel retains up to 2,000 recent log entries. New configured channels get
+panels automatically.
+
+Radio status, the shared reply queue and airtime limits stay above the panels.
+A shared event and error log remains visible below them, including errors from
+hidden channels. Compact terminals use a shorter status summary. Traffic
+broadcasts appear in the traffic panel along with its questions and replies.
+JSON events continue to carry `channel_idx`. Environment configuration also works:
 `MESHPOTATO_ADDITIONAL_CHANNELS=2,3` (empty means none).
 
 ## Usage
@@ -757,9 +804,9 @@ This also works with `--headless`. Set `announce_startup = false` under `[bot]`
 to make quiet startup the default. Regular replies, fortunes, and scheduled usage
 tips retain their normal behavior.
 
-This opens a terminal monitor showing the radio and channel state, a
-scrolling log of every message on the channel with its hop count and the
-bot's decision, the rate limiter, the channel utilisation, and counters.
+This opens a terminal monitor showing the radio and channel state, separate
+channel logs for messages, replies and decisions, a shared error log,
+rate limits, channel utilisation and counters.
 Press `q` to quit. While the monitor is up the JSON log goes to
 `meshpotato.jsonl` in the current directory.
 
@@ -802,12 +849,31 @@ This controls your user's processes on this computer, not bots on other hosts or
 under other accounts. Disable any external service that automatically restarts
 the bot if you want it to stay stopped.
 
-After a successful start, the bot introduces its name, package version,
-capabilities, and help in one message, for example:
+On first launch, the primary AI service and enabled chess and traffic services
+each introduce their name, version, capabilities and help in one message.
+For example, the AI introduction is:
 
 ```text
 Mesh Potato v2.0.1: Ask about weather, sports, traffic, radio, or a poem. Try /help for examples.
 ```
+
+Chess and traffic introduce themselves as **Mesh Potato Chess v1.0** and
+**Mesh Potato Traffic v1.0**. Their versions advance independently of each other
+and the AI package version. Their `about` and `version` replies show these versions.
+
+With the default `announce_once = true`, each channel records its welcome attempt
+in its own state database immediately before transmission. Routine restarts and
+version changes do not repeat it, even after an ambiguous radio failure. A start
+suppressed by `--no-announce` does not consume the first welcome. Leave that flag
+off the first launch when you want all three introductions. They share the radio
+rate limit, so they arrive separately. `announce_startup = false` suppresses all
+welcomes; `announce_once = false` restores an introduction at every start.
+Without a persistent database, the welcome cannot be remembered across restarts.
+Traffic alert receipts are separate, so new serious alerts still broadcast.
+
+The AI example above assumes no dedicated traffic channel. When #traffic is
+enabled, the AI welcome omits traffic from its list of capabilities. Additional
+generic AI channels do not send their own startup welcome.
 
 The package version is also available locally with `meshpotato --version`.
 This uses the normal ASCII/length checks, injection gate, and rate limits, with
@@ -1458,6 +1524,17 @@ No radio, no model server, and no network are needed. The MeshCore object and
 the model backend are replaced by fakes. The injection tests use the
 detector's original attack strings and check that flagged text never reaches
 the model and never reaches the radio.
+
+Chess tests use fake engines by default. To also check legal moves at every
+difficulty and recovery after a real engine crash, point the test runner at a
+local Stockfish executable:
+
+```bash
+MESHPOTATO_TEST_STOCKFISH=/absolute/path/to/stockfish .venv/bin/pytest -q tests/test_chess.py
+```
+
+This starts only disposable local engine processes and uses fake radios; it does
+not start the live bot or transmit messages.
 
 Layout:
 

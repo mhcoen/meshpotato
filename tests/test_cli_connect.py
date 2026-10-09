@@ -127,3 +127,21 @@ def test_release_boot_lines_tolerates_other_transports():
         connection_manager = object()
 
     cli.release_boot_lines(Bare())  # must not raise
+
+
+async def test_service_construction_error_is_clean_and_disconnects(monkeypatch, capsys):
+    import io
+    from bot.jsonlog import EventLog
+    from bot.service import ChannelError
+    from tests.conftest import FakeMeshCore, make_config
+    radio = FakeMeshCore()
+    async def connected(cfg):
+        return radio
+    def fail(*args, **kwargs):
+        raise ChannelError('Chess requires the optional dependency: pip install -e ".[chess]"')
+    monkeypatch.setattr(cli, 'connect', connected)
+    monkeypatch.setattr(cli, 'build_service', fail)
+    result = await cli.run(make_config(), True, EventLog(stream=io.StringIO()), references=())
+    assert result == 3 and radio.disconnected
+    error = capsys.readouterr().err
+    assert error.startswith('error: Chess requires') and 'Traceback' not in error
