@@ -1,6 +1,6 @@
 # Conversation context and radio knowledge
 
-[Back to the README](../README.md#features) | [Configuration](configuration.md)
+[Back to the manual](manual.md#features) | [Configuration](configuration.md)
 
 ## Conversation context
 

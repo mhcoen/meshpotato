@@ -1,6 +1,6 @@
 # Conversation storage
 
-[Back to the README](../README.md#per-person-memory) | [Configuration](configuration.md)
+[Back to the manual](manual.md#per-person-memory) | [Configuration](configuration.md)
 
 Mesh Potato saves recent channel history and per-person conversations in
 `meshpotato.sqlite3`. SQLite is included with Python; no separate database

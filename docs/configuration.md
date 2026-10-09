@@ -1,6 +1,6 @@
 # Configuration reference
 
-[Back to the README](../README.md#configuration) | [Example configuration](../config.example.toml)
+[Back to the manual](manual.md#configuration) | [Example configuration](../config.example.toml)
 
 All keys with their defaults. Sections in the file are for readability only;
 any key may appear in any section.
@@ -20,12 +20,12 @@ any key may appear in any section.
 | `trigger_prefix` | `""` | Off by default, so every message is a prompt, except bare reactions and lines mentioning someone else, and the model may pass on remarks between other people; `"!ai "` answers only messages beginning with that exact text |
 | `reply_max_chars` | automatic | Omit to calculate 160 minus the UTF-8 byte length of `bot_name` minus 2 (147 for Mesh Potato). Optionally set a smaller character cap, including the exact-name mention; every reply is also checked in UTF-8 bytes. |
 | `prompt_max_chars` | `160` | Longer prompts are dropped |
-| `reply_delay_s` | `2.0` | Seconds after a question before the reply is transmitted, jittered; see [Rate limits and channel load](../README.md#rate-limits-and-channel-load) |
+| `reply_delay_s` | `2.0` | Seconds after a question before the reply is transmitted, jittered; see [Rate limits and channel load](manual.md#rate-limits-and-channel-load) |
 | `shorten_retries` | `2` | Times a reply that does not fit goes back to the model with the exact limit |
 | `too_long_reply` | `That answer will not fit in one message, ask me something narrower.` | Sent when it still does not fit after the retries |
 | `apology` | `Sorry, I couldn't answer that one.` | Posted on model timeout or error |
 | `facts` | `""` | Local facts added to the system prompt after the built-in LoRa facts and the radio's own settings |
-| `[personas]` | seven built-ins | Table of name = text presets, including nice and serious; explicit tables replace other built-ins but always receive the reserved built-in nice voice; see [Personalities](../README.md#personalities) |
+| `[personas]` | seven built-ins | Table of name = text presets, including nice and serious; explicit tables replace other built-ins but always receive the reserved built-in nice voice; see [Personalities](manual.md#personalities) |
 | `default_persona` | `nice` | Compatibility setting: normalized to `nice` on load, including old configs and environment overrides; startup/reset/expiry always use the built-in nice voice, other voices require a command |
 | `persona_timeout_min` | `120` | A switched personality reverts after this long |
 | `persona_reset_message` | `Back to the default personality.` | Posted when it reverts |

@@ -155,4 +155,4 @@ you want that introduction. `announce_startup = false` suppresses welcomes on
 all channels. Welcomes and moves share the normal radio queue and airtime limits.
 
 For installation, starting the shared process and terminal monitor controls,
-see the [main README](../../README.md#usage).
+see the [manual](../manual.md#usage).

@@ -1,6 +1,6 @@
 # USB serial troubleshooting
 
-[Back to the README](../README.md#troubleshooting) | [Prepare the radio](../README.md#prepare-the-radio)
+[Back to the manual](manual.md#troubleshooting) | [Prepare the radio](manual.md#prepare-the-radio)
 
 **"cannot open /dev/...: No such file or directory".** Either the `port`
 setting does not match this computer, or the radio has not enumerated. The

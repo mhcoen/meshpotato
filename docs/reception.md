@@ -1,6 +1,6 @@
 # Reception explanations
 
-[Back to the README](../README.md#features) | [Context and knowledge](context-and-knowledge.md)
+[Back to the manual](manual.md#features) | [Context and knowledge](context-and-knowledge.md)
 
 Ask a normal question such as:
 
