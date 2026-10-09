@@ -20,6 +20,8 @@ def runtime_reference(cfg):
             f'One reply has at most {cfg.reply_max_chars} characters including its addressee, '
             f'and must also fit the radio byte limit. Generation and lookup share {cfg.model_timeout_s:g} seconds. '
             f'{p}help lists commands; {p}help web, {p}help voices, {p}help fun, {p}help privacy give details. '
+            f'Usage tips are {"enabled" if cfg.tips_enabled else "disabled"}; configured slots '
+            f'{cfg.tips_morning_time} and {cfg.tips_evening_time} host local time, with quiet-channel deferral. '
             f'Voices: {", ".join(p+n for n in cfg.personas)}. '
             f'Nondefault voices revert to {cfg.default_persona} after {cfg.persona_timeout_min:g} minutes; '
             f'{p}reset restores that voice for everyone. '

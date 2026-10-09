@@ -18,6 +18,9 @@ from Wisconsin 511 and answered from a prepared cache without a model call.
 Reports cover University Avenue to I-39/90, show their source age, and expire
 after ten minutes. Missing or stale traffic gets a temporary-unavailability notice.
 
+When enabled, two short usage tips per day show example questions, including
+weather, sports and traffic. They yield to conversations and skip busy periods.
+
 Ordinary answers occupy one short radio message. A user can ask a follow-up for
 more detail; the bot does not automatically split an answer into multiple packets.
 An explicit greeting deserves a warm acknowledgment. A failed generation is not

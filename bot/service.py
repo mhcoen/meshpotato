@@ -254,6 +254,8 @@ class BotService:
         self._activity_sequence = 0
         self.web = WebLookup()
         self.traffic = None  # CLI attaches the optional background cache
+        self.tips = None
+        self._last_channel_activity = self._clock()
         try:
             parameters = inspect.signature(backend.complete).parameters
             self._web_token_override = "max_tokens" in parameters or any(
@@ -350,6 +352,12 @@ class BotService:
             self.fortune.start()
         if self.traffic is not None:
             self.traffic.start()
+        if self.tips is not None:
+            try:
+                self.tips.restore()
+                self.tips.start()
+            except (StateError, ValueError) as exc:
+                self.log.emit('tip_error', error=str(exc))
         self._memory_task = asyncio.create_task(self._memory_gc(), name="memory-gc")
         if self._state_store is not None:
             self._state_task = asyncio.create_task(self._save_state_periodically(), name="state-save")
@@ -405,7 +413,7 @@ class BotService:
         self._startup_announcement_task = None
         self._state_task = None
         await self._cancel_persona_timer()
-        for worker in (self.traffic, self.fortune, self.monitor):
+        for worker in (self.tips, self.traffic, self.fortune, self.monitor):
             if worker is not None:
                 await close_step(worker.stop, self.shutdown_timeout_s, self.log)
         await close_step(self.mc.stop_auto_message_fetching, self.shutdown_timeout_s, self.log)
@@ -440,6 +448,7 @@ class BotService:
             return
         if ours:
             self.stats.rx_heard += 1
+            self._last_channel_activity = self._clock()
         self.log.emit(
             "rx",
             ours=ours,
@@ -614,6 +623,7 @@ class BotService:
             return self._record(parsed, path_len, Decision.IGNORED_OTHER_CHANNEL, channel_idx=chan)
 
         self.stats.received += 1
+        self._last_channel_activity = received_at
         self.log.emit("received", sender=parsed.sender, prompt=parsed.body, path_len=path_len)
         self.memory.sweep()
 
@@ -1410,6 +1420,33 @@ class BotService:
         self.stats.last_latency_ms = latency_ms
         return shaped, retries, latency_ms, truncated
 
+    def usage_tip_ready(self) -> bool:
+        current = asyncio.current_task()
+        return (not self._stopped and self.limiter.global_factor == 1
+                and self._clock() - self._last_channel_activity >= self.cfg.tips_quiet_s
+                and not self._waiting
+                and not any(task is not current for task in self._requests))
+
+    async def post_usage_tip(self, text: str, can_send: Callable[[], bool]) -> str:
+        """One reviewed example, without a model call, queue, or retransmission."""
+        eligible = lambda: can_send() and self.usage_tip_ready()
+        if not eligible():
+            return 'busy'
+        async with self._request(self.cfg.bot_name, eligible):
+            try:
+                self._check(text, 'usage-tip')
+                if not self._admit(self.cfg.bot_name).allowed:
+                    return 'rate-limited'
+                if not await self._send(text):
+                    return 'send-failed'
+                self.stats.posts_sent += 1
+                self.log.emit('post', what='usage-tip', text=text)
+                return 'sent'
+            except InjectionBlocked:
+                return 'blocked'
+            except (PostExpired, TransmissionPaused):
+                return 'expired'
+
     async def post_generated(self, prefix: str, request: str, fallback: str, what: str,
                              can_send: Callable[[], bool] = lambda: True) -> str:
         if self._stopped or len(self._requests) >= 512:
@@ -1771,6 +1808,7 @@ class BotService:
             # Radio commands may wait behind other commands. Charge ambiguous or
             # cancelled attempts too, and anchor refill after that wait.
             state.reservation.commit()
+            self._last_channel_activity = self._clock()
             if state.direct_reply and not state.direct_counted:
                 state.direct_counted = True  # A two-page help response is one exchange.
                 self._direct_replies[state.sender] = self._direct_replies.get(state.sender, 0) + 1

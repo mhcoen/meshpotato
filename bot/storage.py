@@ -1,4 +1,4 @@
-"""Bounded SQLite conversation snapshots; no radio, model, or timer state.
+"""Bounded SQLite conversation snapshots and usage-tip rotation/attempt claims.
 
 Calls are synchronous and contain no await: snapshots and /forget cannot race.
 SQLite lock waits are capped at 100 ms. A generation check prevents two running
@@ -79,6 +79,8 @@ class StateStore:
             if len(meta) != 1 or meta[0][0] != scope:
                 raise StateError("state database belongs to a different bot/channel; use a separate state_db file")
             self._generation = meta[0][1]
+            with db:
+                db.execute("CREATE TABLE IF NOT EXISTS usage_tips (id INTEGER PRIMARY KEY CHECK(id=1), last_slot TEXT, used TEXT)")
         except (sqlite3.Error, OSError, ValueError, StateError) as exc:
             self.close()
             raise StateError(f"{path}: {exc}") from exc
@@ -161,6 +163,34 @@ class StateStore:
             self._last_snapshot = snapshot
         except sqlite3.Error as exc:
             raise StateError(f"cannot save conversation state: {exc}") from exc
+
+    def load_usage_tips(self) -> dict:
+        try:
+            row = self._db.execute("SELECT last_slot, used FROM usage_tips WHERE id=1").fetchone()
+            if row is None:
+                return dict(last_slot=None, used=[])
+            from datetime import datetime
+            datetime.fromisoformat(row[0])
+            used = json.loads(row[1])
+            if (not isinstance(used, list) or len(used) > 128
+                    or any(not isinstance(item, str) or len(item) > 80 for item in used)):
+                raise ValueError("invalid usage-tip rotation")
+            return dict(last_slot=row[0], used=used)
+        except (sqlite3.Error, TypeError, ValueError) as exc:
+            raise StateError(f"cannot restore usage tips: {exc}") from exc
+
+    def save_usage_tips(self, last_slot: str, used: list[str]) -> None:
+        try:
+            with self._db:
+                updated = self._db.execute(
+                    "UPDATE metadata SET generation=generation+1 WHERE generation=?", (self._generation,))
+                if updated.rowcount != 1:
+                    raise StateError("state changed by another bot; use a separate state_db file")
+                self._db.execute("INSERT OR REPLACE INTO usage_tips VALUES (1, ?, ?)",
+                                 (last_slot, json.dumps(used)))
+            self._generation += 1
+        except sqlite3.Error as exc:
+            raise StateError(f"cannot save usage tips: {exc}") from exc
 
     def close(self) -> None:
         if self._db is not None:

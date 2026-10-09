@@ -83,6 +83,14 @@ class Config:
     traffic_enabled: bool = True
     traffic_refresh_s: float = 300.0
 
+    # [tips] Two low-priority usage examples per day, in host local time.
+    tips_enabled: bool = True
+    tips_morning_time: str = "10:00"
+    tips_evening_time: str = "18:00"
+    tips_jitter_min: float = 5.0
+    tips_window_min: float = 15.0
+    tips_quiet_s: float = 60.0
+
     # [fortune]
     fortune_enabled: bool = True
     fortune_time: str = "06:00"
@@ -184,6 +192,20 @@ class Config:
             errors.append("too_long_reply must fit with room for a 20 character sender name")
         if self.reply_delay_s < 0:
             errors.append("reply_delay_s must not be negative")
+        try:
+            morning = parse_hhmm(self.tips_morning_time)
+            evening = parse_hhmm(self.tips_evening_time)
+            separation = (evening[0] - morning[0]) * 60 + evening[1] - morning[1]
+            if not 60 <= separation <= 1380:
+                errors.append("tip times must be ordered and at least an hour apart")
+        except (ValueError, TypeError) as exc:
+            errors.append(str(exc))
+        if not 0 <= self.tips_jitter_min <= 15:
+            errors.append("tips_jitter_min must be between 0 and 15")
+        if not 1 <= self.tips_window_min <= 30:
+            errors.append("tips_window_min must be between 1 and 30")
+        if not 10 <= self.tips_quiet_s <= 1800:
+            errors.append("tips_quiet_s must be between 10 and 1800")
         if self.traffic_refresh_s < 60 or self.traffic_refresh_s > 600:
             errors.append("traffic_refresh_s must be between 60 and 600 seconds")
         if self.model_timeout_s <= 0:

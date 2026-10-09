@@ -42,6 +42,14 @@ web_location = "Madison, Wisconsin"  # used only for local weather/hours questio
 traffic_enabled = true          # prefetch Madison Beltline travel times; no API key or model call
 traffic_refresh_s = 300.0        # every five minutes; source measurements expire after ten minutes
 
+[tips]
+tips_enabled = true             # two one-message examples daily; questions take priority
+tips_morning_time = "10:00"      # host local time
+tips_evening_time = "18:00"
+tips_jitter_min = 5.0            # random offset after each scheduled time
+tips_window_min = 15.0           # skip if no quiet opportunity within this window
+tips_quiet_s = 60.0              # wait for a minute without channel activity
+
 [fortune]
 fortune_enabled = true            # post a daily fortune, unprompted
 fortune_time = "06:00"            # local time of this computer; a random offset up to fortune_jitter_min is added

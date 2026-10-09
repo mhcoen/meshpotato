@@ -111,6 +111,110 @@ two hours by default. If a trigger prefix is configured, put it before the
 command, for example `!ai /help`. See [Personalities](#personalities) for
 configuration, command details, and limits.
 
+## Twice-daily usage tips
+
+The bot offers two short "Potato tip" examples per day, including **weather,
+sports, and traffic**, plus radio questions, poems, jokes, translations, games,
+and help. These are reviewed examples of what to ask; conversational answers
+still come from the model or live-data handlers.
+
+Defaults are **10:00 a.m. and 6:00 p.m. in the host computer's local timezone**,
+with a random offset of up to five minutes. Each tip is one packet, needs no
+model call or web lookup, and uses the normal global/sender airtime limits. It
+waits for 60 seconds without activity on the served channel, yields to active
+or queued requests, and only sends when adaptive utilization permits full rate.
+If no quiet opportunity appears within 15 minutes, that tip is skipped. A
+expired slot is never caught up after startup or sleep, and a radio attempt is
+never retried when delivery is uncertain. The morning fortune remains separate.
+
+Configure `[tips]` with `tips_enabled`, `tips_morning_time`,
+`tips_evening_time`, `tips_jitter_min`, `tips_window_min`, and `tips_quiet_s`.
+The two times must be ordered and at least an hour apart. Set `tips_enabled = false`
+to disable announcements. The normal state database remembers attempted slots
+and used examples across restarts; disabling `state_db` makes that memory last
+only for the current process. Tip state is separate from personal conversation
+memory. State-write failures skip the tip instead of risking a duplicate.
+
+The rotation uses every eligible example before recycling, then avoids the last
+ten examples. Web-dependent examples are omitted when web lookup is disabled;
+command and trigger examples reflect the configured prefixes. Examples that
+cannot fit a custom radio identity are omitted. Data-dependent questions may
+return a temporary-unavailability notice when their sources are unavailable.
+
+<details>
+<summary>All 68 usage-tip examples (default configuration)</summary>
+
+1. Potato tip: Ask about weather, sports, traffic, radio, or something fun. Try "What can you do?"
+2. Potato tip: Try "weather" for local conditions and tomorrow's forecast.
+3. Potato tip: Try "What is the traffic on the Madison Beltline?"
+4. Potato tip: Team nicknames work. Try "What is the Pats record?"
+5. Potato tip: Try "Write a tiny poem about cheese."
+6. Potato tip: Try "What does SNR mean?"
+7. Potato tip: Traveling? Try "weather in Chicago, IL". Name a city for another location.
+8. Potato tip: Try "What is the Brewers record?"
+9. Potato tip: Try "Madison Beltline eastbound delays?" for the eastbound travel-time report.
+10. Potato tip: Try "Tell me a short joke about geese."
+11. Potato tip: Try "What does RSSI mean?"
+12. Potato tip: Try "How do you say good night in Spanish?"
+13. Potato tip: Try "weather in Verona, WI" for a nearby forecast.
+14. Potato tip: Try "When is the Brewers next game?"
+15. Potato tip: Heading west? Try "Madison Beltline westbound traffic?"
+16. Potato tip: Try "Write a tiny poem about the moon."
+17. Potato tip: Try "What does spreading factor change?"
+18. Potato tip: Try "Explain gravity like I am ten."
+19. Potato tip: Try "weather in Milwaukee, WI" before a trip.
+20. Potato tip: Try "When is the Packers next game?"
+21. Potato tip: Beltline reports show their age. Try "Madison Beltline traffic?" Stale data is not called current.
+22. Potato tip: Try "Tell me a potato joke."
+23. Potato tip: Try "How does LoRa bandwidth affect range?"
+24. Potato tip: Try "How do you say thank you in French?"
+25. Potato tip: Short on typing? Try "wx" for a local weather summary.
+26. Potato tip: Try "What is the Niners record?" Nicknames can save typing.
+27. Potato tip: Traffic questions can use ordinary words: "Any delays on the Madison Beltline?"
+28. Potato tip: Try "Write a tiny poem about a sleepy dog."
+29. Potato tip: Try "What is LoRa coding rate?"
+30. Potato tip: Try "Why is the sky blue?"
+31. Potato tip: Try "weather in Middleton, WI" for conditions and a forecast.
+32. Potato tip: Try "When is the Bucks next game?"
+33. Potato tip: Try "What is the Brewers record and when is their next game?"
+34. Potato tip: Try "Tell me a short joke about a rubber duck."
+35. Potato tip: Try "What does a MeshCore repeater do?"
+36. Potato tip: Try "How does a rainbow form?"
+37. Potato tip: Try "weather in Madison, WI". Weather summaries include today and tomorrow.
+38. Potato tip: Shared team names need context. Try "What is the SF Giants record?"
+39. Potato tip: For an older score, include the team and an actual game date written as YYYY-MM-DD.
+40. Potato tip: Try "Write a tiny poem about rain on a roof."
+41. Potato tip: Try "What does antenna gain mean?"
+42. Potato tip: Try "Why does the moon have phases?"
+43. Potato tip: After asking about a team, try "When is their next game?" I remember recent team context.
+44. Potato tip: For ambiguous team names, include the sport or league: "New York Giants NFL record?"
+45. Potato tip: Try "Write a tiny poem about messages crossing the night."
+46. Potato tip: Try "Why does antenna height matter?"
+47. Potato tip: Try "What is 15 percent of 80?"
+48. Potato tip: Try "How do you say welcome in German?"
+49. Potato tip: Try "Make this friendlier: Please stop blocking the driveway."
+50. Potato tip: Try "Suggest three names for a robot potato."
+51. Potato tip: Try "How does MeshCore recognize duplicate messages?"
+52. Potato tip: Try "What causes thunder?"
+53. Potato tip: Try "How many miles is 10 kilometers?"
+54. Potato tip: Try "Translate bonjour into English."
+55. Potato tip: Try "Shorten this: I am on my way and should arrive in about ten minutes."
+56. Potato tip: Try "Suggest three picnic snacks."
+57. Potato tip: Try "What is the difference between RSSI and SNR?"
+58. Potato tip: Try "Why do we have seasons?"
+59. Potato tip: After an answer, try "Explain that more simply." Short follow-up questions work.
+60. Potato tip: After an explanation, try "Give me an example."
+61. Potato tip: Try "What can you do?" for a short introduction.
+62. Potato tip: Curious about the bot? Try "What model are you?"
+63. Potato tip: For commands and help topics, send "/help".
+64. Potato tip: For a dice roll, send "/roll 2 6". That rolls two six-sided dice.
+65. Potato tip: For a playful yes/no answer, send "/magic8 Should I have another cookie?"
+66. Potato tip: Try "/help privacy" to learn about memory. This is a shared radio channel.
+67. Potato tip: Try "/forget" to clear my personal memory of you. Shared channel history and logs remain.
+68. Potato tip: Try "/help voices" to see styles. Voice changes affect the whole channel.
+
+</details>
+
 ## What you can ask
 
 Ask a question in ordinary language. For example:

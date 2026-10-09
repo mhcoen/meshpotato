@@ -30,6 +30,7 @@ from bot.ratelimit import RateLimiter
 from bot.service import BotService, ChannelError
 from bot.fortune import FortuneScheduler
 from bot.traffic import TrafficCache
+from bot.usage_tips import UsageTipScheduler
 from bot.utilization import UtilizationMonitor
 from bot.lifecycle import disconnect
 from bot.instance import InstanceError, SingleInstance
@@ -90,6 +91,8 @@ def build_service(cfg: Config, meshcore, log: EventLog, references: tuple[Refere
     )
     if cfg.web_enabled and cfg.traffic_enabled:
         service.traffic = TrafficCache(log, refresh_s=cfg.traffic_refresh_s)
+    if cfg.tips_enabled:
+        service.tips = UsageTipScheduler(service, log)
     if cfg.fortune_enabled:
         service.fortune = FortuneScheduler(
             service=service,
