@@ -663,7 +663,7 @@ async def test_help_explains_personal_games_and_the_two_advice_commands(games):
     g, *_ = games
     full = await ask(g, 'help')
     assert full.startswith('Everyone has their own saved game.')
-    assert 'hint nudges, suggest names a move' in full and 'hint=' not in full
+    assert 'hint (a piece), suggest (a move)' in full and 'hint=' not in full
     assert (await ask(g, 'help', available=112)).startswith('Own saved game per player.')
     assert (await ask(g, 'help', available=80)).startswith('Own game per player.')
     play = await ask(g, 'help play')
