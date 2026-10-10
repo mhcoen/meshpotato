@@ -60,7 +60,7 @@ to return to your saved game.
 | `help`, `help topics`, `help play`, `help game`, `help levels`, `help board`, `help draw`, `help moves` | Instructions; no move is played |
 | `hint`, `help me choose a move` | A positional hint |
 | `suggest`, `what should I play?` | A specific legal move suggestion; does not play it |
-| `board`, `status`, `last move` | See the position, game status or last turn's reply |
+| `board`, `status`, `last move` | See the position; your score against the bot, whose turn it is and the engine version; or last turn's reply |
 | `moves`, `history`, `!moves 2` | Saved moves in compact algebraic notation; request a numbered page for longer games |
 | `draw`, `offer a draw` | Offer a draw, or claim an already valid draw |
 | `claim`, `claim Ng8` | Claim threefold repetition or the 50-move rule, optionally with an intended move |
@@ -126,8 +126,8 @@ for a reply before sending another request.
    For example, after you send `e4`, a reply such as
    `You: e4. Me: e5 (e7e5). Your move.` confirms that both moves were saved.
 2. If that reply still shows the previous turn, send `board` to check the saved
-   position. `status` also shows your color, difficulty, move number and whether
-   the game has ended.
+   position. `status` shows the move number and whether the game has ended,
+   along with your running score against the bot.
 3. If the saved position shows that your move was not accepted, resend it once.
    If it was accepted, continue from the bot's saved reply instead of replaying
    your move. If no requests receive replies, wait for the connection or bot to

@@ -162,6 +162,10 @@ class ChessGames:
             receipts = state.get('receipts')
             if not isinstance(receipts, list) or len(receipts) > 128:
                 raise StateError('Invalid chess receipt history.')
+            score = state.setdefault('score', {'you': 0, 'me': 0, 'draws': 0})
+            if (not isinstance(score, dict) or set(score) != {'you', 'me', 'draws'}
+                    or any(type(n) is not int or n < 0 for n in score.values())):
+                raise StateError('Invalid chess score.')
             wire = type(packet_timestamp) is int and packet_timestamp > 0
             digest = hashlib.sha256(text.strip().encode()).hexdigest()
             key = f'{packet_timestamp}:{digest}' if wire else digest
@@ -174,6 +178,7 @@ class ChessGames:
             game = state.get('game')
             board = board_for(game) if game is not None else None
             command = parse_command(text)
+            unfinished = game is not None and not game['result']
             try:
                 reply, changed = await self._execute(state, board, command, available)
             except (ValueError, EngineError) as exc:
@@ -182,6 +187,8 @@ class ChessGames:
                 return reply if len(reply) <= available else 'Could not complete that request. Your game is unchanged. Try help or status.'
             if len(reply) > available:
                 return 'Not enough room in one reply. Try status, last, or a shorter sender name.'
+            if unfinished and state['game'] is game and game['result']:
+                score[self._outcome(game)] += 1
             if changed or game is not None:
                 state['receipts'] = (receipts + [{'key': key, 'at': now}])[-128:]
                 self.store.save_chess(sender, state, self.max_games)
@@ -235,6 +242,18 @@ class ChessGames:
         if kind == 'cancel':
             state['pending'] = None
             return ('Restart cancelled. Your current game is unchanged.', game is not None)
+        if kind == 'status':
+            score = state['score']
+            if game is None:
+                situation = 'No game yet; say new easy to play.'
+            elif game['result']:
+                situation = 'Game over; say new to play again.'
+            else:
+                situation = f'Move {board.fullmove_number}, your turn.'
+            tally = f"Score: you {score['you']}, me {score['me']}, draws {score['draws']}."
+            engine = getattr(self.engine, 'name', 'Stockfish')
+            link = 'https://github.com/mhcoen/meshpotato'
+            return fit(f'{situation} {tally} {engine}. {link}', f'{situation} {tally} {engine}.', f'{situation} {tally}', situation)
         if game is None:
             return fit('No game yet. Everyone has their own saved game. Say new beginner, new easy black, or new 1600. Say help for commands.',
                        'No game yet. Your own game is saved. Say new beginner, new easy black, or new 1600.')
@@ -242,8 +261,6 @@ class ChessGames:
             return move_history(game, argument, available), False
         if kind == 'last':
             return (game['last'], False)
-        if kind == 'status':
-            return (f'You: {game["color"].title()}; difficulty: {game["level"]}. '+(game['result'] or f'Move {board.fullmove_number}: your turn.'), False)
         if kind == 'board':
             rows = [f'{rank+1}:'+''.join(board.piece_at(chess.square(file, rank)).symbol() if board.piece_at(chess.square(file, rank)) else '.'
                                       for file in range(8)) for rank in range(7, -1, -1)]
@@ -311,6 +328,14 @@ class ChessGames:
         game['last'] = reply
         state['pending'] = None
         return reply, True
+
+    @staticmethod
+    def _outcome(game):
+        result = game['result']
+        if 'wins' not in result:
+            return 'draws'
+        winner = 'white' if 'White wins' in result else 'black'
+        return 'you' if winner == game['color'] else 'me'
 
     @staticmethod
     def _with_note(result, available):

@@ -20,6 +20,7 @@ from tests.conftest import FakeBackend, FakeClock, Harness, make_config
 
 class FakeEngine:
     rating_range = (1320, 3190)
+    name = 'Stockfish 17.1'
     options = Stockfish.options
 
     def __init__(self, moves=()):
@@ -648,8 +649,8 @@ async def test_long_name_can_get_help_on_radio(tmp_path):
 async def test_newcomers_learn_games_are_personal_and_saved(games):
     g, engine, store, clock = games
     assert 'Everyone has their own saved game' in welcome('chess')
-    assert 'Everyone has their own saved game' in await ask(g, 'status')
-    assert 'own game is saved' in await ask(g, 'status', available=90)
+    assert 'Everyone has their own saved game' in await ask(g, 'moves')
+    assert 'own game is saved' in await ask(g, 'moves', available=90)
     reply = await ask(g, 'new easy')
     assert reply.startswith('New novice game. You are White.')
     assert reply.endswith('Your game is saved; everyone has their own.')
@@ -668,3 +669,40 @@ async def test_help_explains_personal_games_and_the_two_advice_commands(games):
     assert (await ask(g, 'help', available=80)).startswith('Own game per player.')
     play = await ask(g, 'help play')
     assert 'suggest names a move without playing it' in play
+
+
+async def test_status_reports_score_engine_and_link(tmp_path):
+    store = StateStore(str(tmp_path / 'games.sqlite3'), 'test-chess')
+    g = ChessGames(FakeEngine(moves=['f3', 'g4']), clock=FakeClock(1000))
+    await g.prepare(store)
+    try:
+        link = 'https://github.com/mhcoen/meshpotato'
+        assert await ask(g, 'status') == f'No game yet; say new easy to play. Score: you 0, me 0, draws 0. Stockfish 17.1. {link}'
+        assert await ask(g, 'status', available=70) == 'No game yet; say new easy to play. Score: you 0, me 0, draws 0.'
+        assert await ask(g, 'status', available=40) == 'No game yet; say new easy to play.'
+        await ask(g, 'new easy black')
+        await ask(g, 'e5')
+        assert (await ask(g, 'status')).startswith('Move 2, your turn. Score: you 0, me 0, draws 0. Stockfish 17.1.')
+        assert 'Checkmate. Black wins.' in await ask(g, 'Qh4')
+        assert (await ask(g, 'status')).startswith('Game over; say new to play again. Score: you 1, me 0, draws 0.')
+        await ask(g, 'new easy')
+        await ask(g, 'resign')
+        assert (await ask(g, 'status')).startswith('Game over; say new to play again. Score: you 1, me 1, draws 0.')
+        assert (await ask(g, 'status', sender='Bob')).startswith('No game yet; say new easy to play. Score: you 0, me 0, draws 0.')
+        assert store.load_chess('Alice')['score'] == {'you': 1, 'me': 1, 'draws': 0}
+    finally:
+        await g.stop()
+        store.close()
+
+
+async def test_saved_games_without_a_score_start_at_zero_and_bad_scores_are_rejected(games):
+    g, _, store, _ = games
+    await ask(g, 'new easy')
+    state = store.load_chess('Alice')
+    del state['score']
+    store.save_chess('Alice', state, 10)
+    assert 'Score: you 0, me 0, draws 0' in await ask(g, 'status')
+    state['score'] = {'you': -1, 'me': 0, 'draws': 0}
+    store.save_chess('Alice', state, 10)
+    with pytest.raises(StateError):
+        await ask(g, 'status')
