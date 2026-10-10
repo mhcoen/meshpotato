@@ -195,12 +195,14 @@ class ChessGames:
         if kind == 'about':
             return welcome('chess'), False
         if kind == 'help':
-            return fit('new easy; new 1600 black. Play e4/e2e4. hint=advice; suggest=move. board, moves, status, draw, claim, resign. /! optional.',
-                       'new easy white/black; play e4. hint, suggest, moves, board. Say help topics.')
+            return fit('Everyone has their own saved game. new easy; new 1600 black. Play e4. hint nudges, suggest names a move. board, status. help topics.',
+                       'Own saved game per player. new easy; new 1600 black. Play e4. hint nudges, suggest names a move. help topics.',
+                       'Own game per player. new easy black; play e4. hint, suggest, board. help topics.')
         if kind == 'help topics':
             return ('Help: help play, help game, help levels, help board, help draw, help moves.', False)
         if kind == 'help play':
-            return ('new easy black or new 1600 white. Play e4 or e2e4. hint=advice; suggest=move.', False)
+            return fit('new easy black or new 1600 white. Play e4 or e2e4. hint nudges you toward an idea; suggest names a move without playing it.',
+                       'new easy black or new 1600. Play e4. hint nudges; suggest names a move.')
         if kind == 'help game':
             return fit('board, status, moves, last move, resign. new then confirm new restarts; cancel keeps your game.',
                        'board, status, moves, last move, resign. new then confirm new restarts.')

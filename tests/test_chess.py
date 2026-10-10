@@ -657,3 +657,14 @@ async def test_newcomers_learn_games_are_personal_and_saved(games):
     short = await ask(g, 'new easy', sender='Bob', available=60)
     assert short == 'New novice game. You are White. Your move.'
     assert (await ask(g, 'last move', sender='Bob')) == 'New novice game. You are White. Your move.'
+
+
+async def test_help_explains_personal_games_and_the_two_advice_commands(games):
+    g, *_ = games
+    full = await ask(g, 'help')
+    assert full.startswith('Everyone has their own saved game.')
+    assert 'hint nudges, suggest names a move' in full and 'hint=' not in full
+    assert (await ask(g, 'help', available=112)).startswith('Own saved game per player.')
+    assert (await ask(g, 'help', available=80)).startswith('Own game per player.')
+    play = await ask(g, 'help play')
+    assert 'suggest names a move without playing it' in play
