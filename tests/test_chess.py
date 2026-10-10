@@ -9,6 +9,7 @@ chess = pytest.importorskip('chess')
 
 from bot.chess_commands import LEVELS, new_options, parse_command
 from bot.chess_engine import EngineError, Stockfish
+from bot.channel_info import welcome
 from bot.chess_game import ChessGames, board_for, ending, parse_move
 from bot.config import ConfigError
 from bot.jsonlog import EventLog
@@ -642,3 +643,17 @@ async def test_long_name_can_get_help_on_radio(tmp_path):
         assert len(('Mesh Potato: '+h.sent[-1][1]).encode()) <= 160
     finally:
         await h.service.stop()
+
+
+async def test_newcomers_learn_games_are_personal_and_saved(games):
+    g, engine, store, clock = games
+    assert 'Everyone has their own saved game' in welcome('chess')
+    assert 'Everyone has their own saved game' in await ask(g, 'status')
+    assert 'own game is saved' in await ask(g, 'status', available=90)
+    reply = await ask(g, 'new easy')
+    assert reply.startswith('New novice game. You are White.')
+    assert reply.endswith('Your game is saved; everyone has their own.')
+    assert len(reply) <= 136
+    short = await ask(g, 'new easy', sender='Bob', available=60)
+    assert short == 'New novice game. You are White. Your move.'
+    assert (await ask(g, 'last move', sender='Bob')) == 'New novice game. You are White. Your move.'

@@ -223,18 +223,19 @@ class ChessGames:
             if game is not None and not game['result']:
                 state['pending'] = {'level': level, 'color': color, 'at': self.clock()}
                 return (f'Start a new {level} game as {color.title()}? Your current game will end. Say confirm new or cancel within 2 minutes.', True)
-            return await self._new(state, level, color)
+            return self._with_note(await self._new(state, level, color), available)
         if kind == 'confirm':
             pending = state.get('pending')
             if not pending or not 0 <= self.clock()-pending['at'] <= 120:
                 state['pending'] = None
                 return ('No pending restart. Say new beginner, or new 1600 black.', game is not None)
-            return await self._new(state, pending['level'], pending['color'])
+            return self._with_note(await self._new(state, pending['level'], pending['color']), available)
         if kind == 'cancel':
             state['pending'] = None
             return ('Restart cancelled. Your current game is unchanged.', game is not None)
         if game is None:
-            return ('No game yet. Say new beginner, new easy black, or new 1600. Say help for commands.', False)
+            return fit('No game yet. Everyone has their own saved game. Say new beginner, new easy black, or new 1600. Say help for commands.',
+                       'No game yet. Your own game is saved. Say new beginner, new easy black, or new 1600.')
         if kind == 'history':
             return move_history(game, argument, available), False
         if kind == 'last':
@@ -308,6 +309,13 @@ class ChessGames:
         game['last'] = reply
         state['pending'] = None
         return reply, True
+
+    @staticmethod
+    def _with_note(result, available):
+        # First replies tell a newcomer that games are personal and kept.
+        reply, changed = result
+        note = ' Your game is saved; everyone has their own.'
+        return (reply+note if len(reply+note) <= available else reply), changed
 
     async def _new(self, state, level, color):
         board = chess.Board()

@@ -16,7 +16,7 @@ def identity(kind):
 
 def welcome(kind, *, counties='Dane'):
     name, version = identity(kind)
-    example = ('Say new beginner to play, e4 to move, hint for advice, or help.'
+    example = ('Everyone has their own saved game. Say new beginner to play, e4 to move, hint for advice, or help.'
                if kind == 'chess' else
                f'Alerts for {counties}. Ask current alerts or traffic Beltline. Say help for more.')
     return f'{name} v{version}: {example}'

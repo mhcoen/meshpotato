@@ -1,6 +1,8 @@
 # #chess: Mesh Potato Chess
 
-Mesh Potato Chess runs saved games in **#chess** using Stockfish.
+Mesh Potato Chess plays Stockfish games in **#chess**. Everyone on the channel
+plays their own game at the same time, and each player's game is remembered
+between moves and across restarts.
 
 [#ai and main README](../../README.md) · [#traffic README](../../bot/traffic/README.md)
 
