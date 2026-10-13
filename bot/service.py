@@ -61,7 +61,7 @@ from bot.triage import is_reaction, mentions_someone, social_acknowledgment
 from bot.lifecycle import close_step, disconnect
 from bot.storage import StateError, StateStore
 from bot.self_knowledge import runtime_reference, factual_self_reply, game_reply
-from bot.weather import weather_location, weather_answer, UNAVAILABLE as WEATHER_UNAVAILABLE
+from bot.weather import weather_location, weather_answer, weather_followup, CLARIFY as WEATHER_CLARIFY, UNAVAILABLE as WEATHER_UNAVAILABLE
 from bot.recovery import recovery_messages
 
 
@@ -158,6 +158,7 @@ class PendingReply:
     traffic_direction: str | None = None
     program_reply: str = ""
     weather_reply: str = ""
+    weather_clarification: str | None = None
     before_send: Callable[[], None] | None = None
     weather_expires_at: float | None = None
     recovery_context: list[dict[str, str]] | None = None
@@ -285,6 +286,7 @@ class BotService:
         self.traffic_channel = None
         self.traffic_destination = None
         self._traffic_clarifications: OrderedDict[str, float] = OrderedDict()
+        self._weather_clarifications: OrderedDict[str, tuple[str, float]] = OrderedDict()
         self.tips = None
         self._last_channel_activity = self._clock()
         try:
@@ -789,6 +791,8 @@ class BotService:
         if addressed_to_us and self._direct_replies.get(parsed.sender, 0) >= DIRECT_REPLY_LIMIT:
             return await self._direct_guidance(parsed, path_len, received_at)
         command, arguments = command_parts(prompt, cfg.command_prefix)
+        # Consume only this sender's pending question, including on a topic switch.
+        weather_pending = self._weather_clarifications.pop(parsed.sender, None)
         if command in {'weather', 'wx', 'traffic'}:
             prompt = ('weather' if command == 'wx' else command) + (' ' + arguments if arguments else '')
             command = WEB_COMMAND
@@ -829,6 +833,11 @@ class BotService:
                 injection_error=verdict.error,
             )
         prompt = verdict.text  # sanitized form when that mode is on
+        if (cfg.web_enabled and not explicit_web and weather_pending is not None
+                and 0 <= self._clock() - weather_pending[1] <= 120):
+            if followup := weather_followup(prompt, weather_pending[0]):
+                prompt = followup
+                self._check(prompt, 'weather-followup')
         if self.traffic_destination and is_traffic_question(prompt):
             limit = await self._wait_for_admission(parsed.sender, received_at)
             if not limit.allowed:
@@ -964,11 +973,15 @@ class BotService:
                         validated_at = datetime.now().astimezone()
                         state.web_failure, evidence = weather_answer(pages, validated_at, available)
                         self._check(state.web_failure, 'weather-reply')
+                        if state.web_failure == WEATHER_CLARIFY:
+                            state.weather_clarification = weather_location(prompt, cfg.web_location)
                         if evidence:
                             state.weather_reply = state.web_failure
                             remaining = (datetime.fromisoformat(evidence['valid_until']) - validated_at).total_seconds()
                             state.weather_expires_at = self._clock() + max(0, remaining)
-                        self.log.emit('weather_lookup', outcome='answer' if evidence else 'unverified', **(evidence or {}))
+                        self.log.emit('weather_lookup', outcome='answer' if evidence else 'unverified',
+                                      errors=[p['weather_error'] for p in pages if isinstance(p.get('weather_error'), str)],
+                                      **(evidence or {}))
                     else:
                         state.web_sources = usable_sources(pages, self.gate, prompt, now,
                             rejected=lambda reason: self.log.emit("web_source_rejected", reason=reason))
@@ -1111,6 +1124,11 @@ class BotService:
         decision = Decision.ANSWERED_FALLBACK if fallback else Decision.ANSWERED
         if await self._send(reply, mention_sender=parsed.sender):
             self.stats.replies_sent += 1
+            if state.remember and state.weather_clarification is not None and shaped == WEATHER_CLARIFY:
+                self._weather_clarifications[parsed.sender] = (state.weather_clarification, self._clock())
+                self._weather_clarifications.move_to_end(parsed.sender)
+                while len(self._weather_clarifications) > cfg.person_memory_people:
+                    self._weather_clarifications.popitem(last=False)
             if state.remember and state.program_reply and traffic_clarification(prompt, cfg.web_location) == state.program_reply:
                 self._traffic_clarifications[parsed.sender] = self._clock()
                 self._traffic_clarifications.move_to_end(parsed.sender)
@@ -1829,6 +1847,7 @@ class BotService:
         elif command == FORGET_COMMAND:
             self._sports_context.pop(parsed.sender, None)
             self._traffic_clarifications.pop(parsed.sender, None)
+            self._weather_clarifications.pop(parsed.sender, None)
             self._outcomes.pop(parsed.sender, None)
             for state in self._requests.values():
                 if state.sender == parsed.sender:

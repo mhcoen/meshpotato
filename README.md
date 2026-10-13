@@ -22,7 +22,12 @@ run. A live instance answers on `#ai` in southern Wisconsin, centered on Madison
   how your message reached it from that packet's hop count, RSSI and SNR.
 - **Looks things up.** Weather, scores, prices, news and other changing facts
   trigger a web lookup with a source domain, or an honest "could not verify".
-  Daily weather comes as a compact one-line forecast.
+  Daily weather comes as a compact one-line forecast. If a location cannot be
+  found, the reply says weather information is unavailable for that location;
+  service failures receive a separate retry notice.
+  Locations accept `Madison WI` and `NYC`. After a location clarification,
+  answer with a place (or the missing US state) within two minutes to continue
+  your weather request.
 - **Plays chess.** An optional `#chess` channel runs Stockfish with saved games
   per player, adjustable difficulty, hints, draw claims and move history.
 - **Reports traffic.** An optional `#traffic` channel announces serious

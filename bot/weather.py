@@ -10,12 +10,45 @@ from urllib.parse import urlencode
 
 from bot.reply import plain_ascii
 from bot.lookup_messages import WEATHER_UNAVAILABLE as UNAVAILABLE
+from bot.lookup_messages import WEATHER_LOCATION_UNAVAILABLE as LOCATION_UNAVAILABLE
 
 CLARIFY = "Which city and state or country do you mean?"
 MAX_AGE_S = 900
 STATES = dict(zip(
     ('Alabama|Alaska|Arizona|Arkansas|California|Colorado|Connecticut|Delaware|Florida|Georgia|Hawaii|Idaho|Illinois|Indiana|Iowa|Kansas|Kentucky|Louisiana|Maine|Maryland|Massachusetts|Michigan|Minnesota|Mississippi|Missouri|Montana|Nebraska|Nevada|New Hampshire|New Jersey|New Mexico|New York|North Carolina|North Dakota|Ohio|Oklahoma|Oregon|Pennsylvania|Rhode Island|South Carolina|South Dakota|Tennessee|Texas|Utah|Vermont|Virginia|Washington|West Virginia|Wisconsin|Wyoming|District of Columbia').split('|'),
     'AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY DC'.split()))
+
+
+def normalize_location(place):
+    """Supply the provider's comma syntax without discarding location qualifiers."""
+    place = re.sub(r'\s+', ' ', place).strip(' ,?.')
+    parts = [p.strip() for p in place.split(',')]
+    if parts[0].casefold() in {'nyc', 'new york city'}:
+        parts[0] = 'New York'
+        if len(parts) == 1:
+            parts.append('NY')
+        return ', '.join(parts)
+    if len(parts) == 1 and place.casefold() not in {state.casefold() for state in STATES}:
+        for region in sorted((*STATES, *STATES.values()), key=len, reverse=True):
+            suffix = ' ' + region
+            if place.casefold().endswith(suffix.casefold()):
+                return place[:-len(suffix)] + ', ' + region
+    return ', '.join(parts)
+
+
+def weather_followup(prompt, previous_place):
+    """Interpret a short location answer only while a clarification is pending."""
+    text = prompt.strip().rstrip('.?!')
+    if (not 2 <= len(text) <= 80 or len(text.split()) > 6
+            or not re.fullmatch(r"[\w\s,.'-]+", text)
+            or re.search(r'\b(?:what|why|how|weather|wx|forecast|sports|traffic|write|tell|'
+                         r'explain|joke|poem|you|bot|thanks|never mind|forget|cancel)\b', text, re.I)):
+        return None
+    text = re.sub(r'^(?:in|at|for)\s+', '', text, flags=re.I)
+    # A state alone refines the city we asked about, e.g. Madison -> Wisconsin.
+    if previous_place and text.casefold() in {r.casefold() for r in (*STATES, *STATES.values())}:
+        text = normalize_location(previous_place).split(',')[0] + ', ' + text
+    return 'weather in ' + normalize_location(text)
 
 
 def weather_location(prompt, default=''):
@@ -34,7 +67,7 @@ def weather_location(prompt, default=''):
     place = re.sub(r'\s+(?:today|tomorrow)$', '', place, flags=re.I).strip(' ,?')
     if re.search(r'\b(?:yesterday|last|next|week|month|year|was|will|why|how|and)\b|\d{4}-\d{2}', place, re.I):
         return None
-    return place
+    return normalize_location(place)
 
 
 def _number(value, low, high):
@@ -51,9 +84,14 @@ def collect_weather(query, fetch, now=None):
     try:
         geo_url = 'https://geocoding-api.open-meteo.com/v1/search?' + urlencode(
             {'name': place, 'count': 10, 'language': 'en', 'format': 'json'})
-        rows = fetch(geo_url).get('results', [])
-        if not isinstance(rows, list) or not rows:
+        geocoding = fetch(geo_url)
+        if not isinstance(geocoding, dict) or '_error' in geocoding or geocoding.get('error'):
             return [{'weather_error': 'unavailable'}]
+        rows = geocoding.get('results', [])
+        if not isinstance(rows, list):
+            return [{'weather_error': 'unavailable'}]
+        if not rows:
+            return [{'weather_error': 'location-not-found'}]
         # The provider applies comma qualifiers. Still verify them ourselves;
         # never silently choose another state or country with the same city name.
         parts = [p.strip().casefold() for p in place.split(',')]
@@ -104,6 +142,8 @@ def weather_answer(pages, now, available):
         page = pages[0]
         if page.get('weather_error') == 'location':
             return CLARIFY, None
+        if page.get('weather_error') == 'location-not-found':
+            return LOCATION_UNAVAILABLE, None
         fetched = datetime.fromisoformat(page['fetched_at'])
         if not 0 <= (now - fetched).total_seconds() <= MAX_AGE_S:
             raise ValueError('stale fetch')

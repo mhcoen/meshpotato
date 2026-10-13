@@ -288,7 +288,16 @@ These are model-based weather estimates and forecasts. The summary uses Fahrenhe
 and mph, and dates in the requested location's timezone. If the full presentation
 does not fit after the sender mention, it shortens labels and removes decoration
 before dropping any weather fields; it never splits a summary across packets.
-Ambiguous place names receive a clarification. Missing, malformed or stale weather
+US city/state locations accept a missing comma, such as `Madison WI`, and `NYC`
+or `New York City` means New York, NY. Explicit state/country qualifiers are
+still checked; the bot does not silently pick a different region.
+Ambiguous place names receive a clarification. The same sender can answer with
+a location (for example `NYC`) or the missing US state (`WI` after `Madison`)
+within two minutes, and the bot continues the weather lookup without a model
+call. This pending question is cleared by the sender's next message or `/forget`.
+If the location service returns no
+matches, the reply says weather information is unavailable for that location and
+suggests another location, without implying a service outage. Missing, malformed or stale weather
 data receives a notice that live weather lookup is supported but unavailable at
 the moment. Sports and traffic lookup failures use the same topic-specific wording,
 for example: "I can look up live traffic, but can't get it right now. Please try again."

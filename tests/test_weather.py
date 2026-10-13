@@ -7,7 +7,7 @@ import pytest
 
 from bot.config import WIRE_TEXT_MAX
 from bot.service import Decision
-from bot.weather import weather_location, collect_weather, weather_answer, UNAVAILABLE, CLARIFY
+from bot.weather import weather_location, collect_weather, weather_answer, UNAVAILABLE, CLARIFY, LOCATION_UNAVAILABLE
 from bot.web import search_query
 from tests.conftest import FakeBackend
 
@@ -52,6 +52,11 @@ def pages(now=NOW):
     ('weather Paris, France tomorrow', 'Paris, France'),
     ('daily weather for Seattle, WA', 'Seattle, WA'),
     ('forecast for London, UK', 'London, UK'),
+    ('weather in Madison WI', 'Madison, WI'),
+    ('weather in Madison Wisconsin', 'Madison, Wisconsin'),
+    ('weather in NYC', 'New York, NY'),
+    ('weather in New York City', 'New York, NY'),
+    ('weather in West Virginia', 'West Virginia'),
 ])
 def test_location_parsing_keeps_explicit_location(prompt, place):
     assert weather_location(prompt, 'Madison, WI') == place
@@ -97,13 +102,141 @@ def test_bad_or_stale_evidence_never_produces_weather(change):
     assert weather_answer(data, NOW, 150) == (UNAVAILABLE, None)
 
 
-def test_ambiguous_or_wrong_state_is_not_silently_selected():
+@pytest.mark.parametrize('qualified', ['Madison, California', 'Madison CA', 'Madison California'])
+def test_ambiguous_or_wrong_state_is_not_silently_selected(qualified):
     rows = [{'name':'Madison','admin1':s,'country_code':'US','latitude':43,'longitude':-89}
             for s in ('Wisconsin','Alabama')]
     result = collect_weather('weather Madison', lambda _: {'results': rows}, NOW)
     assert weather_answer(result, NOW, 150) == (CLARIFY, None)
-    result = collect_weather('weather Madison, California', lambda _: {'results': rows}, NOW)
+    result = collect_weather('weather ' + qualified, lambda _: {'results': rows}, NOW)
     assert weather_answer(result, NOW, 150) == (CLARIFY, None)
+
+
+@pytest.mark.parametrize('place,city,region', [
+    ('Madison WI', 'Madison', 'Wisconsin'),
+    ('Madison Wisconsin', 'Madison', 'Wisconsin'),
+    ('NYC', 'New York', 'New York'),
+    ('New York City', 'New York', 'New York'),
+])
+def test_location_provider_receives_normalized_query(place, city, region):
+    calls = []
+    def fetch(url):
+        calls.append(url)
+        if urlsplit(url).hostname == 'geocoding-api.open-meteo.com':
+            name = parse_qs(urlsplit(url).query)['name'][0]
+            # Mimic the provider: missing commas return no results.
+            if name not in (city + ', ' + region, city + ', ' + {'Wisconsin': 'WI', 'New York': 'NY'}[region]):
+                return {}
+            return {'results': [{'name': city, 'admin1': region, 'country_code': 'US',
+                                 'latitude': 43.1, 'longitude': -89.4}]}
+        return forecast()
+    answer, evidence = weather_answer(collect_weather('weather in ' + place, fetch, NOW), NOW, 180)
+    assert evidence and city in answer
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize('first,followup,expected', [
+    ('Weather at New York', 'NYC', 'New York, NY'),
+    ('Weather at New York', 'New York City', 'New York, NY'),
+    ('Weather in Madison', 'WI', 'Madison, WI'),
+    ('Weather in Madison', 'Madison WI', 'Madison, WI'),
+])
+async def test_weather_clarification_continues_lookup_without_model(harness, clock, first, followup, expected):
+    h = harness(web_enabled=True, backend=FakeBackend(error=AssertionError('no model')))
+    def search(query):
+        if h.service.web.search.call_count == 1:
+            return [{'weather_error': 'location'}]
+        assert query.startswith('weather ' + expected + ' (as of ')
+        data = pages(datetime.now(timezone.utc))
+        data[0]['location'] = expected
+        return data
+    h.service.web.search = AsyncMock(side_effect=search)
+    assert await h.say('Michael: ' + first) == Decision.ANSWERED
+    assert CLARIFY in h.sent[-1][1]
+    clock.advance(20)
+    assert await h.say('Michael: ' + followup) == Decision.ANSWERED
+    assert expected in h.sent[-1][1] and '°F' in h.sent[-1][1]
+    assert h.service.web.search.call_count == 2 and not h.backend.calls
+    assert not h.service._weather_clarifications
+
+
+@pytest.mark.parametrize('sender,elapsed,interruption', [
+    ('Other', 20, None), ('Michael', 121, None),
+    ('Michael', 20, '/forget'), ('Michael', 20, 'write a poem'),
+])
+async def test_weather_clarification_is_personal_expires_and_clears(harness, clock, sender, elapsed, interruption):
+    h = harness(web_enabled=True)
+    h.service.web.search = AsyncMock(return_value=[{'weather_error': 'location'}])
+    await h.say('Michael: Weather at New York')
+    assert 'Michael' in h.service._weather_clarifications
+    clock.advance(elapsed)
+    if interruption:
+        await h.say('Michael: ' + interruption)
+        clock.advance(20)
+    await h.say(sender + ': NYC')
+    assert h.service.web.search.call_count == 1
+
+
+async def test_unsent_weather_clarification_is_not_remembered(harness):
+    from meshcore import EventType
+    h = harness(web_enabled=True)
+    h.service.web.search = AsyncMock(return_value=[{'weather_error': 'location'}])
+    h.mc.commands.send_result_type = EventType.ERROR
+    assert await h.say('Michael: Weather at New York') == Decision.DROP_SEND_FAILED
+    assert not h.service._weather_clarifications
+
+
+async def test_forget_during_weather_clarification_does_not_restore_context(harness, monkeypatch):
+    import asyncio
+    h = harness(web_enabled=True, global_burst=3, sender_burst=3)
+    h.service.web.search = AsyncMock(return_value=[{'weather_error': 'location'}])
+    entered, release = asyncio.Event(), asyncio.Event()
+    async def hold(received):
+        entered.set()
+        await release.wait()
+        return 0
+    monkeypatch.setattr(h.service, '_hold_for_quiet_channel', hold)
+    question = asyncio.create_task(h.say('Michael: Weather at New York'))
+    await asyncio.wait_for(entered.wait(), 1)
+    await h.say('Michael: /forget')
+    release.set()
+    await asyncio.wait_for(question, 1)
+    assert not h.service._weather_clarifications
+
+
+@pytest.mark.parametrize('response', [{'generationtime_ms': 0.49}, {'results': []}])
+def test_no_location_matches_has_location_specific_notice(response):
+    calls = []
+    def fetch(url):
+        calls.append(url)
+        return response
+    result = collect_weather('weather Vostok Antarctica', fetch, NOW)
+    assert weather_answer(result, NOW, 150) == (LOCATION_UNAVAILABLE, None)
+    assert len(calls) == 1 and 'geocoding-api.open-meteo.com' in calls[0]
+
+
+@pytest.mark.parametrize('response', [
+    {'_error': 'TimeoutError'}, {'_error': 'scoreboard HTTP 503'},
+    {'error': True, 'reason': 'Service unavailable'},
+    {'results': None}, {'results': 'invalid'}, None,
+])
+def test_geocoding_failure_is_not_reported_as_missing_location(response):
+    result = collect_weather('weather Vostok Antarctica', lambda _: response, NOW)
+    assert weather_answer(result, NOW, 150) == (UNAVAILABLE, None)
+
+
+async def test_unknown_weather_location_reply_and_diagnostic_without_model(harness):
+    h = harness(bot_name='Mesh Potato', reply_max_chars=147, web_enabled=True,
+                backend=FakeBackend(error=AssertionError('no model')))
+    h.service.web.search = AsyncMock(side_effect=lambda query: collect_weather(
+        query, lambda _: {'generationtime_ms': 0.49}, NOW))
+    assert await h.say('Michael: Weather in Vostok Antarctica') == Decision.ANSWERED
+    reply = h.sent[-1][1]
+    assert reply == '@[Michael] ' + LOCATION_UNAVAILABLE
+    assert len(('Mesh Potato: ' + reply).encode()) <= WIRE_TEXT_MAX
+    assert not h.backend.calls
+    assert any(r['event'] == 'weather_lookup' and r['errors'] == ['location-not-found']
+               for r in h.records)
 
 
 @pytest.mark.parametrize('prompt', ['wx', 'what is the weather?'])
