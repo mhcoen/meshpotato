@@ -291,6 +291,9 @@ before dropping any weather fields; it never splits a summary across packets.
 US city/state locations accept a missing comma, such as `Madison WI`, and `NYC`
 or `New York City` means New York, NY. Explicit state/country qualifiers are
 still checked; the bot does not silently pick a different region.
+Bare US states and state abbreviations (including `Ny`, `NY`, and `ny`) ask
+for a city instead of selecting a same-named town elsewhere. Answering `Albany`
+after `NY` retains New York state; `NYC` explicitly selects New York City.
 Ambiguous place names receive a clarification. The same sender can answer with
 a location (for example `NYC`) or the missing US state (`WI` after `Madison`)
 within two minutes, and the bot continues the weather lookup without a model

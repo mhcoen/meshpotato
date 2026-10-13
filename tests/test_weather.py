@@ -7,7 +7,7 @@ import pytest
 
 from bot.config import WIRE_TEXT_MAX
 from bot.service import Decision
-from bot.weather import weather_location, collect_weather, weather_answer, UNAVAILABLE, CLARIFY, LOCATION_UNAVAILABLE
+from bot.weather import weather_location, collect_weather, weather_answer, weather_followup, UNAVAILABLE, CLARIFY, LOCATION_UNAVAILABLE
 from bot.web import search_query
 from tests.conftest import FakeBackend
 
@@ -138,6 +138,69 @@ def test_location_provider_receives_normalized_query(place, city, region):
     answer, evidence = weather_answer(collect_weather('weather in ' + place, fetch, NOW), NOW, 180)
     assert evidence and city in answer
     assert len(calls) == 2
+
+
+@pytest.mark.parametrize('place', ['Ny', 'NY', 'ny', 'WI', 'CA', 'IN', 'OR', 'New York', 'Wisconsin'])
+def test_state_only_request_never_selects_a_same_named_foreign_town(place):
+    def fetch(url):
+        if urlsplit(url).hostname == 'geocoding-api.open-meteo.com':
+            return {'results': [{'name': place, 'country_code': 'BE',
+                                 'latitude': 50.28536, 'longitude': 5.47976}]}
+        return forecast()
+    assert weather_answer(collect_weather('weather for ' + place, fetch, NOW), NOW, 180) == (CLARIFY, None)
+
+
+def test_explicit_ny_belgium_remains_available():
+    def fetch(url):
+        if urlsplit(url).hostname == 'geocoding-api.open-meteo.com':
+            assert parse_qs(urlsplit(url).query)['name'] == ['Ny, Belgium']
+            return {'results': [{'name': 'Ny', 'country': 'Belgium', 'country_code': 'BE',
+                                 'latitude': 50.28536, 'longitude': 5.47976}]}
+        return forecast()
+    answer, evidence = weather_answer(collect_weather('weather for Ny, Belgium', fetch, NOW), NOW, 180)
+    assert evidence and 'Ny, BE' in answer
+
+
+@pytest.mark.parametrize('previous,reply,expected', [
+    ('NY', 'Albany', 'Albany, NY'), ('Ny', 'NYC', 'New York, NY'),
+    ('WI', 'Madison', 'Madison, WI'), ('NY', 'NY', 'NY'),
+    ('New York', 'NYC', 'New York, NY'),
+    ('Madison', 'WI', 'Madison, WI'),
+    ('NY', 'Madison WI', 'Madison, WI'),
+])
+def test_state_and_city_clarification_combine_without_guessing(previous, reply, expected):
+    assert weather_followup(reply, previous) == 'weather in ' + expected
+
+
+@pytest.mark.parametrize('followup,city,region,lat,lon', [
+    ('NYC', 'New York', 'New York', 40.71427, -74.00597),
+    ('Albany', 'Albany', 'New York', 42.65258, -73.75623),
+])
+async def test_logged_ny_sequence_through_real_weather_pipeline(harness, clock, followup, city, region, lat, lon):
+    h = harness(web_enabled=True, backend=FakeBackend(error=AssertionError('no model')))
+    forecast_coordinates = []
+    def fetch(url):
+        query = parse_qs(urlsplit(url).query)
+        if urlsplit(url).hostname == 'geocoding-api.open-meteo.com':
+            if query['name'][0].casefold() == 'ny':
+                # Location and coordinates recorded on widget for both Ny and NY.
+                return {'results': [{'name': 'Ny', 'country': 'Belgium', 'country_code': 'BE',
+                                     'latitude': 50.28536, 'longitude': 5.47976}]}
+            if query['name'] == [city + ', NY']:
+                return {'results': [{'name': city, 'admin1': region, 'country_code': 'US',
+                                     'latitude': lat, 'longitude': lon}]}
+            return {}
+        forecast_coordinates.append((float(query['latitude'][0]), float(query['longitude'][0])))
+        return forecast(datetime.now(timezone.utc))
+    h.service.web.search = AsyncMock(side_effect=lambda q: collect_weather(q, fetch))
+    for prompt in ['What’s the weather for Ny', 'What’s the weather for NY']:
+        assert await h.say('Michael: ' + prompt) == Decision.ANSWERED
+        assert h.sent[-1][1] == '@[Michael] ' + CLARIFY
+        assert not forecast_coordinates
+        clock.advance(20)
+    assert await h.say('Michael: ' + followup) == Decision.ANSWERED
+    assert city + ', NY' in h.sent[-1][1] and '°F' in h.sent[-1][1]
+    assert forecast_coordinates == [(lat, lon)] and not h.backend.calls
 
 
 @pytest.mark.parametrize('first,followup,expected', [

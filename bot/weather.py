@@ -17,6 +17,7 @@ MAX_AGE_S = 900
 STATES = dict(zip(
     ('Alabama|Alaska|Arizona|Arkansas|California|Colorado|Connecticut|Delaware|Florida|Georgia|Hawaii|Idaho|Illinois|Indiana|Iowa|Kansas|Kentucky|Louisiana|Maine|Maryland|Massachusetts|Michigan|Minnesota|Mississippi|Missouri|Montana|Nebraska|Nevada|New Hampshire|New Jersey|New Mexico|New York|North Carolina|North Dakota|Ohio|Oklahoma|Oregon|Pennsylvania|Rhode Island|South Carolina|South Dakota|Tennessee|Texas|Utah|Vermont|Virginia|Washington|West Virginia|Wisconsin|Wyoming|District of Columbia').split('|'),
     'AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY DC'.split()))
+STATE_ALIASES = {alias.casefold(): code for name, code in STATES.items() for alias in (name, code)}
 
 
 def normalize_location(place):
@@ -28,7 +29,7 @@ def normalize_location(place):
         if len(parts) == 1:
             parts.append('NY')
         return ', '.join(parts)
-    if len(parts) == 1 and place.casefold() not in {state.casefold() for state in STATES}:
+    if len(parts) == 1 and place.casefold() not in STATE_ALIASES:
         for region in sorted((*STATES, *STATES.values()), key=len, reverse=True):
             suffix = ' ' + region
             if place.casefold().endswith(suffix.casefold()):
@@ -45,10 +46,17 @@ def weather_followup(prompt, previous_place):
                          r'explain|joke|poem|you|bot|thanks|never mind|forget|cancel)\b', text, re.I)):
         return None
     text = re.sub(r'^(?:in|at|for)\s+', '', text, flags=re.I)
+    text = normalize_location(text)
+    previous_place = normalize_location(previous_place)
+    previous_state = STATE_ALIASES.get(previous_place.casefold())
+    reply_state = STATE_ALIASES.get(text.casefold())
     # A state alone refines the city we asked about, e.g. Madison -> Wisconsin.
-    if previous_place and text.casefold() in {r.casefold() for r in (*STATES, *STATES.values())}:
-        text = normalize_location(previous_place).split(',')[0] + ', ' + text
-    return 'weather in ' + normalize_location(text)
+    if previous_place and reply_state and not previous_state:
+        text = previous_place.split(',')[0] + ', ' + text
+    # Conversely, NY -> Albany must keep the state rather than search all Albanys.
+    elif previous_state and not reply_state and ',' not in text:
+        text += ', ' + previous_state
+    return 'weather in ' + text
 
 
 def weather_location(prompt, default=''):
@@ -81,7 +89,9 @@ def _number(value, low, high):
 def collect_weather(query, fetch, now=None):
     now = now or datetime.now(timezone.utc)
     place = weather_location(query)
-    if not place:
+    # A bare state/code is ambiguous, even if a foreign town matches it exactly
+    # (the provider returns Ny, Belgium for NY). Ask for a city first.
+    if not place or place.casefold() in STATE_ALIASES:
         return [{'weather_error': 'location'}]
     try:
         geo_url = 'https://geocoding-api.open-meteo.com/v1/search?' + urlencode(

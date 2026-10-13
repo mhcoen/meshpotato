@@ -28,7 +28,8 @@ run. A live instance answers on `#ai` in southern Wisconsin, centered on Madison
   Locations accept `Madison WI` and `NYC`, including natural questions such as
   `What’s the weather in Madison WI?`. After a location clarification,
   answer with a place (or the missing US state) within two minutes to continue
-  your weather request.
+  your weather request. A state alone, such as `NY`, asks for a city; `NYC`
+  selects New York City.
 - **Plays chess.** An optional `#chess` channel runs Stockfish with saved games
   per player, adjustable difficulty, hints, draw claims and move history.
 - **Reports traffic.** An optional `#traffic` channel announces serious
