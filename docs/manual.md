@@ -863,7 +863,7 @@ each introduce their name, version, capabilities and help in one message.
 For example, the introduction in #ai is:
 
 ```text
-Mesh Potato v2.0.1: Ask about weather, sports, traffic, radio, or a poem. Try /help for examples.
+Mesh Potato v2.0.2: Ask about weather, sports, traffic, radio, or a poem. Try /help for examples.
 ```
 
 The #chess and #traffic services introduce themselves as **Mesh Potato Chess v1.0** and
