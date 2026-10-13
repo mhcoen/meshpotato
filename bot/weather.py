@@ -53,6 +53,8 @@ def weather_followup(prompt, previous_place):
 
 def weather_location(prompt, default=''):
     """Only ordinary today/tomorrow summaries; specific/historical questions use web."""
+    # Phone keyboards use curly apostrophes in ordinary contractions.
+    prompt = prompt.replace('’', "'").replace('‘', "'")
     text = re.sub(r'\s*\(as of \d{4}-\d{2}-\d{2}\)\s*$', '', prompt, flags=re.I).strip()
     text = re.sub(r'^/web\s+', '', text, flags=re.I).strip(' ?.！')
     if re.fullmatch(r'what is weather', text, re.I):

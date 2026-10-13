@@ -57,6 +57,11 @@ def pages(now=NOW):
     ('weather in NYC', 'New York, NY'),
     ('weather in New York City', 'New York, NY'),
     ('weather in West Virginia', 'West Virginia'),
+    ('What’s the weather in Vostok Antarctica?', 'Vostok Antarctica'),
+    ('How’s the weather in Madison WI?', 'Madison, WI'),
+    ('What‘s the weather in NYC?', 'New York, NY'),
+    ('today’s weather in Madison WI', 'Madison, WI'),
+    ('tomorrow’s weather in NYC', 'New York, NY'),
 ])
 def test_location_parsing_keeps_explicit_location(prompt, place):
     assert weather_location(prompt, 'Madison, WI') == place
@@ -225,12 +230,15 @@ def test_geocoding_failure_is_not_reported_as_missing_location(response):
     assert weather_answer(result, NOW, 150) == (UNAVAILABLE, None)
 
 
-async def test_unknown_weather_location_reply_and_diagnostic_without_model(harness):
+@pytest.mark.parametrize('prompt', [
+    'Weather in Vostok Antarctica', 'What’s the weather in Vostok Antarctica?',
+])
+async def test_unknown_weather_location_reply_and_diagnostic_without_model(harness, prompt):
     h = harness(bot_name='Mesh Potato', reply_max_chars=147, web_enabled=True,
                 backend=FakeBackend(error=AssertionError('no model')))
     h.service.web.search = AsyncMock(side_effect=lambda query: collect_weather(
         query, lambda _: {'generationtime_ms': 0.49}, NOW))
-    assert await h.say('Michael: Weather in Vostok Antarctica') == Decision.ANSWERED
+    assert await h.say('Michael: ' + prompt) == Decision.ANSWERED
     reply = h.sent[-1][1]
     assert reply == '@[Michael] ' + LOCATION_UNAVAILABLE
     assert len(('Mesh Potato: ' + reply).encode()) <= WIRE_TEXT_MAX
@@ -239,7 +247,8 @@ async def test_unknown_weather_location_reply_and_diagnostic_without_model(harne
                for r in h.records)
 
 
-@pytest.mark.parametrize('prompt', ['wx', 'what is the weather?'])
+@pytest.mark.parametrize('prompt', ['wx', 'what is the weather?', 'What’s the weather?',
+                                  'How’s the weather in Madison WI?'])
 async def test_weather_service_uses_typed_data_and_preserves_unicode(harness, prompt):
     h = harness(bot_name='Mesh Potato', reply_max_chars=147, web_enabled=True,
                 backend=FakeBackend(error=AssertionError('weather must not call model')))
@@ -271,8 +280,9 @@ async def test_stale_weather_is_not_sent_after_pause(harness, clock):
     assert not h.sent and h.inbound_records()[-1]['reason']=='stale-weather'
 
 
-def test_worker_routes_weather_without_general_search(monkeypatch):
+@pytest.mark.parametrize('prompt', ['weather Madison, Wisconsin', 'What’s the weather in Madison, Wisconsin?'])
+def test_worker_routes_weather_without_general_search(monkeypatch, prompt):
     from bot import web_sources
     monkeypatch.setattr(web_sources, 'fetch_page', lambda url, **kw: fetcher()(url))
     monkeypatch.setattr(web_sources, 'DDGS', lambda **kw: pytest.fail('must not search'))
-    assert web_sources.collect('weather Madison, Wisconsin')[0]['location']=='Madison, WI'
+    assert web_sources.collect(prompt)[0]['location']=='Madison, WI'

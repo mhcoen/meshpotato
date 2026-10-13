@@ -25,7 +25,8 @@ run. A live instance answers on `#ai` in southern Wisconsin, centered on Madison
   Daily weather comes as a compact one-line forecast. If a location cannot be
   found, the reply says weather information is unavailable for that location;
   service failures receive a separate retry notice.
-  Locations accept `Madison WI` and `NYC`. After a location clarification,
+  Locations accept `Madison WI` and `NYC`, including natural questions such as
+  `What’s the weather in Madison WI?`. After a location clarification,
   answer with a place (or the missing US state) within two minutes to continue
   your weather request.
 - **Plays chess.** An optional `#chess` channel runs Stockfish with saved games
