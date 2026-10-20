@@ -63,3 +63,10 @@ keywords = ["timeout", "time out", "hop limit", "20 hops", "21 hops", "3 byte", 
 text = "Transmission airtime, waiting for an acknowledgment, and forwarding limits are different. A send timeout does not prove the packet was never transmitted. MeshCore paths have a bounded byte capacity; three-byte repeater identifiers fit at most 21 entries in a 64-byte path. Repeater policies can impose smaller limits. A path-length limit is not a universal time-to-live in seconds, and a packet need not circulate until that limit. Explain these protocol facts rather than reporting the current question's signal readings."
 source = "https://github.com/meshcore-dev/MeshCore/blob/main/src/Packet.h"
 reviewed = "2026-10-20"
+
+[[reference]]
+title = "Meshtastic and MeshCore are separate systems"
+keywords = ["meshtastic", "meshtatstic", "mesh tastic", "meshtasic"]
+text = "Meshtastic and MeshCore are separate LoRa mesh systems with their own firmware, apps and incompatible over-the-air protocols. Meshtastic does not use MeshCore, and MeshCore is not the radio layer underneath Meshtastic. LoRa is the shared radio technology; sharing hardware does not make their networks interoperable. MeshCore companions normally do not relay other users' traffic; dedicated repeaters do. MeshCore group channels flood; direct messages can carry learned repeater paths. Meshtastic broadcasts use managed flooding and its client nodes can relay. Since Meshtastic 2.6, direct messages can use learned next-hop routing, with flooding as fallback. It is inaccurate to say all Meshtastic messages always flood. Meshtastic routing source: https://meshtastic.org/docs/overview/mesh-algo/"
+source = "https://github.com/meshcore-dev/MeshCore/blob/main/docs/faq.md#5-general"
+reviewed = "2026-10-20"

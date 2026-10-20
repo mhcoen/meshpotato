@@ -20,6 +20,9 @@ run. A live instance answers on `#ai` in southern Wisconsin, centered on Madison
 - **Knows the mesh it lives on.** It reads its own frequency, bandwidth and
   power from the radio, carries a small sourced LoRa reference, and can explain
   how your message reached it from that packet's hop count, RSSI and SNR.
+  Its reference material distinguishes MeshCore from Meshtastic, including their
+  separate protocols and routing behavior. Short challenges such as "is that
+  wrong?" recheck the preceding exchange against the relevant reference facts.
 - **Looks things up.** Weather, scores, prices, news and other changing facts
   trigger a web lookup with a source domain, or an honest "could not verify".
   Daily weather comes as a compact one-line forecast. If a location cannot be

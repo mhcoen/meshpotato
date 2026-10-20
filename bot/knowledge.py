@@ -138,7 +138,8 @@ def reference_topic(prompt: str, earlier_prompts: list[str], references: tuple[R
     if asks_about_radio(prompt, references):
         return prompt
     if len(prompt) > 240 or not re.search(
-        r"\b(?:that|it|them|those)\b|^(?:but |and |so )?(?:why|please explain|explain|yes|no)[?.! ]*$", prompt, re.I
+        r"\b(?:that|this|it|them|those)\b|\byour (?:(?:previous|last) )?(?:answer|reply|response)\b"
+        r"|^(?:but |and |so )?(?:why|please explain|explain|yes|no)[?.! ]*$", prompt, re.I
     ):
         return prompt
     for earlier in reversed(earlier_prompts[-2:]):

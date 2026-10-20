@@ -201,7 +201,7 @@ def is_pass(body: str) -> bool:
 
 def looks_like_question(prompt: str, bot_name: str = "") -> bool:
     """A question mark, or an interrogative or request opener; people on a phone skip the mark."""
-    if "?" in prompt:
+    if "?" in prompt or is_answer_feedback(prompt):
         return True
     text = _POLITE_RE.sub("", prompt.strip())
     if re.search(r"\b(?:that(?:'s| is) wrong|makes no sense|doesn't make sense|you (?:explicitly )?declined|stop repeating|needs? (?:fixing|to be fixed)|(?:write|compose|translate) (?:me |us |a |an |this |that |the )|you(?:'re| are) acting|(?:bot|ai).{0,30}ignore me|yes (?:you )?can indeed|i get that|i was (?:adding|told)|this seems too? fast)\b", text.replace('’', "'"), re.I):
@@ -280,6 +280,9 @@ def reply_problem(body: str, prompt: str, same_sender: list[str], other_senders:
         return Problem("mention")
     if unsupported_action(body):
         return Problem('unsupported-action', body)
+    if (same_sender and is_answer_feedback(prompt)
+            and re.search(r"\b(?:not sure|don'?t (?:know|understand)|unclear)\b.{0,45}\b(?:referring|refer to|mean|context)\b", body.replace('’', "'"), re.I)):
+        return Problem('ignored-context', body)
     if incomplete_request(body, prompt):
         return Problem('unfulfilled', body)
     if is_parrot(body, prompt):
@@ -297,6 +300,15 @@ def reply_problem(body: str, prompt: str, same_sender: list[str], other_senders:
     return None
 
 
+def is_answer_feedback(prompt: str) -> bool:
+    """Short challenges to an answer, not unrelated mentions of being wrong."""
+    text = prompt.lower().replace('’', "'").strip()
+    return bool(re.search(
+        r"\b(?:that|this|it)(?:'s| is| was)?\s+(?:(?:simply|just|completely|obviously|plain|plainly|flat)\s+)?(?:wrong|incorrect|false|inaccurate)\b"
+        r"|\b(?:that|this|it) (?:makes no|doesn't make) sense\b"
+        r"|\byour (?:last |previous )?(?:answer|reply|response)\b.{0,25}\b(?:wrong|incorrect|false|inaccurate)\b", text))
+
+
 def unsupported_action(body: str) -> bool:
     """Reject claims of operator-only actions, not ordinary conversation memory."""
     text = body.replace('’', "'")
@@ -308,6 +320,15 @@ def unsupported_action(body: str) -> bool:
 
 def incomplete_request(body: str, prompt: str) -> bool:
     """Conservative checks for empty promises, not a general semantic oracle."""
+    if is_answer_feedback(prompt) and re.fullmatch(
+            r"(?:(?:you(?:'re| are) right(?: to (?:question|challenge) that)?|"
+            r"let me (?:clarify|explain|correct (?:that|myself))|"
+            r"i(?:'ll| will) (?:clarify|explain|correct (?:that|myself))|"
+            r"sorry(?: (?:about|for) (?:that|the confusion|the mistake))?|"
+            r"(?:i was|that was|my (?:answer|reply) was) (?:wrong|incorrect)|"
+            r"thanks? for (?:the correction|pointing that out))[,!.:;\s]*)+",
+            body.strip().replace('’', "'"), re.I):
+        return True
     if looks_like_question(prompt) and not re.fullmatch(r'(?:hello|hi|hey|ahoy)[!?. ]*', prompt.strip(), re.I):
         if re.fullmatch(r'(?:hello|hi|hey|ahoy)(?: there| friend| mate| matey)?[!?. ]*', body.strip(), re.I):
             return True
@@ -337,6 +358,10 @@ def incomplete_request(body: str, prompt: str) -> bool:
 
 def nudge(problem: Problem) -> str:
     """The extra user turn for the one retry. It never offers PASS: given the exit, the model takes it."""
+    if problem.kind == 'ignored-context':
+        return ('The sender is challenging your preceding answer, which is in their earlier exchanges. '
+                'Recheck that answer against relevant reference facts, correct any error, or acknowledge uncertainty. '
+                'Do not claim the topic is missing when the exchange is provided.')
     if problem.kind == 'unsupported-action':
         return 'You cannot change software, settings or tips, reboot devices or schedule future work. Explain what the operator must do; do not claim or promise that you did it.'
     if problem.kind == 'unfulfilled':
