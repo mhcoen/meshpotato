@@ -5,11 +5,12 @@ import hashlib
 import json
 import math
 import re
+from html import unescape
 
 from bot.reply import plain_ascii
 from bot.traffic import CENTRAL
 
-FINGERPRINT_VERSION = 2
+FINGERPRINT_VERSION = 3
 HAZARD_PATTERNS = {
     'pileup': r'\bpile[ -]?ups?\b',
     'multiple vehicles': r'\b(?:multi[ -]?vehicle|multiple vehicles?)\b',
@@ -76,6 +77,16 @@ class Alert:
     hazards: tuple[str, ...] = ()
 
     @property
+    def broadcast_key(self):
+        # Only equivalent source reports may share a receipt. Opposite directions
+        # remain separate unless the source explicitly says BOTH directions.
+        direction = '' if re.search(r'\bboth directions\b', self.detail, re.I) else self.direction.lower()
+        facts = (self.identifier.split(':')[0], self.road.casefold(), direction, self.county.casefold(),
+                 ' '.join(self.detail.casefold().split()), self.start, self.end, self.full,
+                 self.blocked_lanes, self.hazards, self.scheduled)
+        return hashlib.sha256(json.dumps(facts, separators=(',', ':')).encode()).hexdigest()
+
+    @property
     def rejection_key(self):
         # A wording correction may unblock the gate even when facts are unchanged.
         return self.identifier, hashlib.sha256((self.fingerprint+self.detail).encode()).hexdigest()
@@ -84,6 +95,17 @@ class Alert:
         return self.start <= now+lookahead and (self.end is None or self.end > now)
 
     def render(self, now, budget):
+        if self.identifier.startswith('alert:'):
+            if len(self.detail) <= budget:
+                return self.detail
+            # Keep source wording and the alert subject. Explicitly mark an
+            # excerpt instead of replacing a missing-person alert with severity.
+            label = re.search(r'\b(?:silver|amber|endangered missing person|missing person|blue|green) alert\b', self.detail, re.I)
+            detail = self.detail[label.start():] if label else self.detail
+            suffix = '... Details: 511wi.gov.'
+            room = budget-len(suffix)
+            excerpt = detail[:room+1].rsplit(' ', 1)[0].rstrip(' ,;:.') if room > 0 else ''
+            return excerpt+suffix if len(excerpt) >= 20 and len(excerpt+suffix) <= budget else None
         road = ' '.join(filter(None, (self.road, self.direction)))
         when = ''
         if self.scheduled:
@@ -116,13 +138,14 @@ def _make(identifier, priority, road, direction, county, kind, detail, place, st
     # Render source wording, but identify changes by normalized facts only.
     fact_kind = 'winter hazard' if identifier.startswith('winter:') else kind
     material = (FINGERPRINT_VERSION, road.lower(), direction.lower(), county.lower(), fact_kind,
-                full, blocked_lanes, hazards, place.lower(), start if scheduled else None, end, scheduled)
+                full, blocked_lanes, hazards, place.lower(), start if scheduled else None, end, scheduled,
+                ' '.join(detail.casefold().split()) if identifier.startswith('alert:') else None)
     fingerprint = hashlib.sha256(json.dumps(material, separators=(',', ':')).encode()).hexdigest()
     return Alert(identifier, fingerprint, priority, road, direction, county, kind, detail, place,
                  start, end, updated, scheduled, full, blocked_lanes, hazards)
 
 
-def select_alerts(snapshot, now, counties, lookahead=86400):
+def select_alerts(snapshot, now, counties, lookahead=86400, *, deduplicate=True):
     """One bad row is rejected, not converted into an invented warning."""
     selected = {}
     conflicting = set()
@@ -143,7 +166,13 @@ def select_alerts(snapshot, now, counties, lookahead=86400):
                     selected[alert.identifier] = alert
             except (KeyError, TypeError, ValueError, OverflowError):
                 continue
-    return sorted(selected.values(), key=lambda a: (a.priority, not bool(a.place), a.start, a.identifier))
+    ordered = sorted(selected.values(), key=lambda a: (a.priority, not bool(a.place), a.start, a.identifier))
+    if not deduplicate:
+        return ordered
+    unique = {}
+    for alert in ordered:
+        unique.setdefault(alert.broadcast_key, alert)
+    return list(unique.values())
 
 
 def _select(source, row, now, counties):
@@ -225,7 +254,11 @@ def _select(source, row, now, counties):
                 or 'dane' in counties and 'southwest' in scope):
             return None
         start, end = timestamp(row['StartTime']), timestamp(row.get('EndTime'), optional=True)
-        detail = clean(row['Message'])
+        raw = row['Message']
+        if not isinstance(raw, str):
+            return None
+        detail = clean(unescape(re.sub(r'<[^>]+>', ' ', raw)))
+        detail = ' '.join(detail.split())
         if not detail:
             return None
         return _make('alert:'+str(row['Id']), 0, '511 warning', '', ', '.join(sorted(scope)),

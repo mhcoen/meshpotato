@@ -46,7 +46,7 @@ from bot.knowledge import Reference, asks_about_radio, checked_references, refer
 from bot.memory import PersonMemory
 from bot.magic8 import ANSWERS as MAGIC8_ANSWERS
 from bot.sports import sports_answer, sports_failure, MAX_AGE_S, local_now as sports_now
-from bot.sports_queries import is_sports_query, with_team_context, sports_kind, has_team
+from bot.sports_queries import is_sports_query, with_team_context, sports_kind, has_team, series_name
 from bot.parse import extract_prompt, parse_channel_text
 from bot.personas import BUILTIN_PERSONAS, FORGET_COMMAND, HELP_COMMAND, LORA_FACTS, MAGIC8_COMMAND, RESET_COMMAND, ROLL_COMMAND, WEB_COMMAND, command_parts, parse_command, radio_facts
 from bot.web import WebLookup, WebLookupError, needs_web, search_query, usable_sources, web_instructions, supported_answer, web_object, lookup_failure, UNVERIFIED, DISABLED, USAGE
@@ -1264,9 +1264,9 @@ class BotService:
             if notice := traffic_clarification(prompt, self.cfg.web_location):
                 return notice
         remaining = max(0, self._persona_deadline - self._clock()) if self._persona_deadline is not None else None
-        if (sports_kind(prompt) == 'next' and not has_team(prompt)
+        if (sports_kind(prompt) in {'next', 'game'} and not has_team(prompt)
                 and self._sports_prompt(sender, prompt) == prompt
-                and re.search(r'\b(?:they|their|them)\b', prompt, re.I)):
+                and not series_name(prompt)):
             return 'Which team do you mean?'
         if re.fullmatch(r"(?:why didn't you (?:answer|reply to)|did you answer) my (?:last|previous) message[?.!]*", prompt.strip().replace('’', "'"), re.I):
             previous = [r for r in self._activity_rows(sender) if r.decision]

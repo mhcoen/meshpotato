@@ -8,6 +8,36 @@ NONSPORT = re.compile(r"\b(?:credit|exam|school|scrabble|video game|define|meani
 SCOPE = re.compile(r"\b(?:nfl|nba|wnba|mlb|nhl|football|basketball|baseball|hockey|game|match|standings|division|conference)\b", re.I)
 
 
+def series_name(query):
+    names = {
+        'ALCS': r'\balcs\b|\bamerican league championship series\b',
+        'NLCS': r'\bnlcs\b|\bnational league championship series\b',
+        'World Series': r'\bworld series\b',
+        'LCS': r'\blcs\b|(?<!american )(?<!national )\bleague championship series\b',
+    }
+    found = [name for name, pattern in names.items() if re.search(pattern, query, re.I)]
+    return found[0] if len(found) == 1 else None
+
+
+def dated_game(query):
+    query = re.sub(r'\(as of .*?\)\s*$', '', query, flags=re.I)
+    return bool(re.search(r'\b(?:today|tonight|yesterday|tomorrow)\b|\b\d{4}-\d{2}-\d{2}\b', query, re.I))
+
+
+def series_definition(query):
+    name = series_name(query)
+    if not name or not re.search(r'\b(?:what (?:is|are)|stand for|mean|define|explain)\b', query, re.I):
+        return ''
+    if re.search(r'\b(?:scores?|time|when|tonight|today|tomorrow|yesterday|winning|won|playing|schedule|standings|record|winner|champion|date|teams|odds|results?|current)\b', query, re.I):
+        return ''
+    return {
+        'ALCS': 'ALCS is the American League Championship Series; its winner advances to the World Series.',
+        'NLCS': 'NLCS is the National League Championship Series; its winner advances to the World Series.',
+        'LCS': 'LCS means League Championship Series: ALCS for the American League, NLCS for the National League.',
+        'World Series': 'The World Series is MLB\'s best-of-seven championship between the American and National League champions.',
+    }[name]
+
+
 def normalized(query):
     return " ".join(re.findall(r"[a-z0-9]+", query.lower()))
 
@@ -35,14 +65,18 @@ def asks_sports_capabilities(query):
 
 def sports_kind(query, *, has_context=False):
     from bot.sports import is_score_query
-    if NONSPORT.search(query):
+    if NONSPORT.search(query) or series_definition(query):
         return None
     if asks_sports_capabilities(query):
         return None
     q = query.lower().replace("’", "'")
     team = has_team(query)
-    hint = team or bool(re.search(r"\b(?:nfl|nba|wnba|mlb|nhl)\b", q)) or (has_context and bool(re.search(r"\b(?:they|their|them)\b", q)))
-    next_game = bool(re.search(r"\b(?:next (?:game|match)|play(?:ing)? next)\b|\bwhen\b.*\bplay\b|\b(?:when|what time)\b.*\b(?:game|match)\b", q))
+    series = series_name(query)
+    hint = team or bool(series) or bool(re.search(r"\b(?:nfl|nba|wnba|mlb|nhl)\b", q)) or (
+        has_context and bool(re.search(r'\b(?:they|their|them|game|match|division|score|winning|losing|record)\b', q)))
+    next_game = bool(re.search(r"\b(?:next (?:game|match)|play(?:ing)? next)\b|\bwhen\b.*\bplay\b|\b(?:when|time|schedule|start)\b.*\b(?:game|match)\b", q))
+    if series and re.search(r'\b(?:when|time|schedule|start|next)\b', q):
+        return 'game' if dated_game(q) else 'series_next'
     if hint and next_game and re.search(r"\b(?:record|standings)\b", q):
         return "record_next"
     if re.search(r"\bgames? (?:behind|back)\b", q) or (hint and re.search(r"\bhow far (?:behind|back|ahead)\b", q)):
@@ -56,6 +90,10 @@ def sports_kind(query, *, has_context=False):
     if re.search(r"\bstandings\b", q) or (hint and re.search(r"\bstanding\b|\b(?:what|which) (?:place|position)|\brank(?:ed|ing)?\b|\bwhere\b.*\bstand\b", q)):
         return "standings"
     if hint and next_game:
+        # A question about "the game" concerns today's game, including one
+        # already in progress. Only explicit next-game wording advances dates.
+        if dated_game(q) or re.search(r'\b(?:time|when)\b.*\b(?:game|match)\b', q) and not re.search(r'\bnext\b', q):
+            return 'game'
         return "next"
     if not hint and next_game and re.search(r"\b(?:they|their|them)\b", q):
         return "next"  # Missing team needs clarification, never a model-invented date.
@@ -63,6 +101,10 @@ def sports_kind(query, *, has_context=False):
         return "score" if re.search(r"\b(?:game|tonight|right now)\b", q) else "overview"
     if is_score_query(q) or (hint and re.search(r"\b(?:who won|did .+ win|winning|losing|result)\b", q)):
         return "score"
+    if hint and dated_game(q) and re.search(r'\b(?:game|match)\b', q):
+        return 'score'
+    if re.fullmatch(r'next (?:game|match)[?.! ]*', q):
+        return 'next'
     return None
 
 
@@ -71,6 +113,8 @@ def is_sports_query(query):
 
 
 def with_team_context(query, context):
+    if series_name(query):
+        return query  # A competition is not restricted to the previously discussed team.
     # A shared nickname can be resolved by an already established league, without
     # importing any old scores. Explicit new league/sport wording always wins.
     if context and not re.search(r"\b(?:nfl|nba|wnba|mlb|nhl|football|baseball|basketball|hockey)\b", query, re.I):
@@ -78,8 +122,8 @@ def with_team_context(query, context):
         qualified = re.search(r'\b(?:sf|san francisco|ny|new york|boston|chicago|red sox|white sox|texas|arizona|st\.? louis|carolina|florida|los angeles|sacramento|winnipeg)\b', query, re.I)
         if not qualified and short in {'giants', 'jets', 'rangers', 'panthers', 'cardinals', 'kings', 'sox'} and re.search(r'\b'+short+r'\b', query, re.I):
             query = f"{query} ({context['team']}, {context['league'].upper()})"
-    if (context and sports_kind(query, has_context=True) and not has_team(query)
+    if (context and sports_kind(query, has_context=True)
             and not re.search(r"\b(?:nl|al|nfc|afc|nfl|nba|wnba|mlb|nhl)\b", query, re.I)):
-        if re.search(r"\b(?:they|their|them|division)\b", query, re.I):
+        if (not has_team(query) or re.search(r'\b(?:they|their|them)\b', query, re.I)) and normalized(context['team']) not in normalized(query):
             return f"{query} ({context['team']}, {context['league'].upper()})"
     return query

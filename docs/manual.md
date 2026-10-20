@@ -866,11 +866,11 @@ each introduce their name, version, capabilities and help in one message.
 For example, the introduction in #ai is:
 
 ```text
-Mesh Potato v2.0.3: Ask about weather, sports, traffic, radio, or a poem. Try /help for examples.
+Mesh Potato v2.0.4: Ask about weather, sports, traffic, radio, or a poem. Try /help for examples.
 ```
 
 The #chess and #traffic services introduce themselves as **Mesh Potato Chess v1.0** and
-**Mesh Potato Traffic v1.0**. Their versions advance independently of each other
+**Mesh Potato Traffic v1.0.1**. Their versions advance independently of each other
 and the AI package version. Their `about` and `version` replies show these versions.
 
 With the default `announce_once = true`, each channel records its welcome attempt

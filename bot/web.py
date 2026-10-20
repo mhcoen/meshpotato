@@ -47,6 +47,8 @@ def needs_web(prompt: str) -> bool:
         return False
     if is_sports_query(prompt):
         return True
+    if re.search(r"\b(?:address|located|location)\b.*\b(?:of|for|at)\b|\bwhere (?:is|are)\b.*\b(?:store|shop|restaurant|menard'?s|library)\b", text) and not re.search(r'\b(?:ip|mac|email|memory|radio|bot)\b', text):
+        return True
     if re.search(r"\b(?:traffic|wx)\b", text) and not re.search(r"\b(?:radio|mesh|network|packet|website|internet|define|meaning)\b", text):
         return True
     return bool(re.search(

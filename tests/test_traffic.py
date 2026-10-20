@@ -328,8 +328,9 @@ async def test_historical_source_times_survive_new_fetch_and_fit_actual_sender()
     await h.say("Michael M7: What's the traffic like on the beltline?")
     reply = h.sent[-1][1]
     assert reply.startswith('@[Michael M7] Beltline: ')
-    assert 'Eastbound 17 min, no delay (yesterday 11:06 PM)' in reply
-    assert 'Westbound 17 min, no delay (4:13 AM)' in reply
+    assert 'EB current unavailable; last 17 min (yesterday 11:06 PM)' in reply
+    assert 'WB current unavailable; last 17 min (4:13 AM)' in reply
+    assert 'no delay' not in reply
     assert len(('Mesh Potato: '+reply).encode()) <= 160
     assert not h.backend.calls
     assert '4:24' not in reply  # fetching did not refresh the observation
@@ -344,7 +345,7 @@ async def test_single_direction_last_update_and_missing_direction():
         return payload
     c.fetch = fetch
     assert await c.refresh()
-    assert c.answer('WB',130) == 'Beltline: Westbound 17 min, no delay (4:13 AM). Source: 511.'
+    assert c.answer('WB',130) == 'Beltline: Westbound current unavailable; last 17 min (4:13 AM). Source: 511.'
     assert 'Eastbound unavailable.' in c.answer('',130)
     assert c.answer('EB',130) == TRAFFIC_UNAVAILABLE
 
@@ -404,8 +405,9 @@ async def test_interstate_questions_use_cached_measurements_and_actual_timestamp
     await h.say('Michael: '+question)
     answer = h.sent[-1][1]
     assert 'I-90 Beltline to I-94:' in answer
-    assert 'Northbound 4 min, no delay (7:00 AM)' in answer
-    assert 'Southbound 8 min, 5 min delay (7:00 AM)' in answer
+    assert 'NB current unavailable; last 4 min (7:00 AM)' in answer
+    assert 'SB current unavailable; last 8 min (7:00 AM)' in answer
+    assert 'no delay' not in answer and '5 min delay' not in answer
     assert len(('Mesh Potato: '+answer).encode()) <= 160
     assert not h.backend.calls
     assert any(r.get('event') == 'traffic_lookup' and r['outcome'] == 'last-known' for r in h.records)

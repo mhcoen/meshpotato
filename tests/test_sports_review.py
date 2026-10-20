@@ -136,7 +136,7 @@ def test_unrelated_chat_does_not_borrow_existing_context(query):
 
 
 @pytest.mark.parametrize('query,kind',[
-    ('are the Brewers in first place','standings'), ('what time is the Packers game','next'),
+    ('are the Brewers in first place','standings'), ('what time is the Packers game','game'),
     ("who's winning the Bucks game",'score'), ('How are the Heat doing?','overview'),
     ('How are the miami heat doing?','overview'), ('How are the heat doing in the NBA?','overview'),
 ])

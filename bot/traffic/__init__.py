@@ -306,9 +306,17 @@ class TrafficCache:
                         if days_ago else '')
                 stamp = date + observed.strftime('%I:%M %p').lstrip('0')
             delay = 'no delay' if report.delay_minutes == 0 else f'{_number(report.delay_minutes)} min delay'
-            parts.append(f'{name} {_number(report.travel_minutes)} min, {delay} ({stamp})')
+            if not self._fresh(report):
+                # A freshly fetched old observation is still old. Prefer an
+                # explicit unavailable notice over sounding like live advice.
+                parts.append(f'{name} current unavailable; last {_number(report.travel_minutes)} min ({stamp})')
+            else:
+                parts.append(f'{name} {_number(report.travel_minutes)} min, {delay} ({stamp})')
         label = 'I-90 Beltline to I-94: ' if direction.startswith('I90') else 'Beltline: '
         answer = label + '. '.join(parts) + ('. Source: 511.' if include_source else '.')
+        if len(answer) > available and any(not self._fresh(r) for r in reports.values()):
+            for full, short in (('Eastbound', 'EB'), ('Westbound', 'WB'), ('Northbound', 'NB'), ('Southbound', 'SB')):
+                answer = answer.replace(full, short)
         if len(answer) > available and direction == 'I90':
             notice = 'I-90 report needs one direction to fit: try /traffic I90 northbound or /traffic I90 southbound.'
             return notice if len(notice) <= available else unavailable

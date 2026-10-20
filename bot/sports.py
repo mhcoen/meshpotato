@@ -60,9 +60,12 @@ def requested_date(query: str, now: datetime):
 
 
 def selected_leagues(query: str) -> list[str]:
+    from bot.sports_queries import series_name
     named = [league for league in LEAGUES if re.search(r"\b" + league + r"\b", query, re.I)]
     if named:
         return named
+    if series_name(query):
+        return ['mlb']
     sports = {"football": ["nfl"], "basketball": ["nba", "wnba"], "baseball": ["mlb"], "hockey": ["nhl"]}
     for sport, leagues in sports.items():
         if re.search(r"\b" + sport + r"\b", query, re.I):
@@ -96,6 +99,36 @@ def matches(team, query):
     return match_strength(team, query) > 0
 
 
+def event_series(event):
+    """Read only the provider's exact postseason label, never arbitrary prose."""
+    labels = set()
+    for note in event['competitions'][0].get('notes', []):
+        if not isinstance(note, dict) or note.get('type') != 'event':
+            continue
+        match = re.fullmatch(r'(ALCS|NLCS|World Series) - Game [1-7]', str(note.get('headline', '')), re.I)
+        if match:
+            labels.add('World Series' if match[1].lower() == 'world series' else match[1].upper())
+    return next(iter(labels)) if len(labels) == 1 else None
+
+
+def recent_result(query):
+    from bot.sports_queries import dated_game
+    return (not dated_game(query) and not re.search(r'\b(?:last|ago|next)\b', query, re.I)
+            and bool(re.search(r'\b(?:what was|who won|did .+ win)\b', query, re.I)))
+
+
+def event_matches(event, teams, league, query):
+    from bot.sports_queries import series_name, has_team
+    series = series_name(query)
+    if series:
+        label = event_series(event)
+        if league != 'mlb' or not (label == series or series == 'LCS' and label in {'ALCS', 'NLCS'}):
+            return False
+        if not has_team(query):
+            return True
+    return any(matches(t, query) for t in teams)
+
+
 def match_strength(team, query):
     normalized = " " + words(query) + " "
     strengths = {"display": 3, "name": 2, "short": 2, "location": 1}
@@ -126,20 +159,25 @@ def parse_event(event: dict, league: str, query: str, now: datetime) -> dict | N
             return None
         comp = competitions[0]
         start = _time(comp["date"]).astimezone(now.tzinfo)
-        if start.date() != requested_date(query, now):
+        day = requested_date(query, now)
+        if not (day - timedelta(days=1) <= start.date() <= day if recent_result(query) else start.date() == day):
             return None
         competitors = comp["competitors"]
         if len(competitors) != 2 or {t["homeAway"] for t in competitors} != {"home", "away"}:
             return None
         competitors = sorted(competitors, key=lambda c: c["homeAway"])
         teams = [_team(c) for c in competitors]
-        if teams[0]["display"] == teams[1]["display"] or not any(matches(t, query) for t in teams):
+        if teams[0]["display"] == teams[1]["display"] or not event_matches(event, teams, league, query):
             return None
         if re.search(r"\b(?:vs|versus|against)\b", query, re.I) and not all(matches(t, query) for t in teams):
             return None
         status = comp["status"]
         typ = status["type"]
         state, name = typ["state"], typ["name"]
+        if recent_result(query) and state != 'post':
+            return None
+        if state == 'pre' and comp.get('timeValid', True) is not True:
+            return None
         if state in {"in", "post"} and start > now + timedelta(minutes=5):
             return None
         scores = []
@@ -183,7 +221,7 @@ def parse_event(event: dict, league: str, query: str, now: datetime) -> dict | N
                 return None
         else:
             return None
-        return {"teams": teams, "scores": scores, "status": label, "date": start.strftime("%m/%d"),
+        return {"teams": teams, "scores": scores, "status": label, "date": start.strftime("%m/%d"), 'start': start.isoformat(),
                 "id": event["id"], "league": league, "state": state}
     except (KeyError, TypeError, ValueError, AttributeError, OverflowError):
         return None
@@ -228,17 +266,14 @@ def collect_scores(query: str, fetch, now: datetime | None = None) -> list[dict]
                 if parse_event(event, league, query, now):
                     # Parent validates again before formatting. Limit transferred
                     # data to the fields actually consumed by the parser.
-                    c = event["competitions"][0]
-                    comp = {"date": c["date"], "status": c["status"], "competitors": [
-                        {"homeAway": t["homeAway"], "score": t.get("score"), "team": _team_source(t)} for t in c["competitors"]]}
-                    found.append({"sports": True, "league": league, "event": {"id": event["id"], "competitions": [comp]},
-                                  "fetched_at": now.isoformat()})
+                    found.append(score_packet(event, league, now))
                 else:
                     # A malformed matching game is a lookup failure, not evidence
                     # that there is no game for the requested date.
                     comp = event['competitions'][0]
                     if (_time(comp['date']).astimezone(now.tzinfo).date() == day
-                            and any(matches(_team(t), query) for t in comp['competitors'])):
+                            and event_matches(event, [_team(t) for t in comp['competitors']], league, query)
+                            and not (recent_result(query) and comp['status']['type']['state'] != 'post')):
                         return [{'sports_error': f'{league}: matching game could not be validated'}]
             return found
         except (KeyError, IndexError, TypeError, ValueError, OSError, AttributeError) as exc:
@@ -259,6 +294,9 @@ def collect_scores(query: str, fetch, now: datetime | None = None) -> list[dict]
     if len(unique) > 3:
         return [{"sports_error": "too many matching games; specify league and opponent"}]
     if not unique:
+        from bot.sports_queries import series_name
+        if series_name(query) or recent_result(query):
+            return []
         if not teams:
             from bot.sports_details import resolve_teams
             teams, errors = resolve_teams(query, fetch, require_id=False)
@@ -277,8 +315,19 @@ def _team_source(competitor):
     return {k: t.get(k) for k in ("name", "displayName", "shortDisplayName", "abbreviation", "location")}
 
 
+def score_packet(event, league, now):
+    c = event['competitions'][0]
+    comp = {k: c[k] for k in ('date', 'status')}
+    comp.update(notes=c.get('notes', []), timeValid=c.get('timeValid', True), competitors=[
+        {'homeAway': t['homeAway'], 'score': t.get('score'), 'team': _team_source(t)} for t in c['competitors']])
+    return {'sports': True, 'league': league, 'event': {'id': event['id'], 'competitions': [comp]},
+            'fetched_at': now.isoformat()}
+
+
 def score_answer(pages: list[dict], query: str, now: datetime, available: int):
     """Return a deterministic line and evidence metadata, or a fixed notice."""
+    if any('sports_error' in p for p in pages):
+        return UNAVAILABLE, None
     if any(p.get('sports_clarify') is True for p in pages):
         return CLARIFY, None
     candidates = {}
@@ -315,6 +364,9 @@ def score_answer(pages: list[dict], query: str, now: datetime, available: int):
     # Prefer matches to both named teams (opponent disambiguates city nicknames).
     best = max(sum(match_strength(t, query) for t in e["teams"]) for e, _ in candidates.values())
     choices = [(e, stamp) for e, stamp in candidates.values() if sum(match_strength(t, query) for t in e["teams"]) == best]
+    if recent_result(query):
+        latest = max(_time(e['start']) for e, _ in choices)
+        choices = [(e, stamp) for e, stamp in choices if _time(e['start']) == latest]
     if len(choices) != 1:
         return CLARIFY, None
     event, stamp = choices[0]
@@ -342,13 +394,19 @@ def team_context(teams, query, league):
 def collect_sports(query, fetch):
     from bot.sports_queries import sports_kind
     from bot.sports_details import collect_details
-    return collect_scores(query, fetch) if sports_kind(query) == "score" else collect_details(query, fetch)
+    if sports_kind(query) == 'series_next':
+        from bot.sports_series import collect_series
+        return collect_series(query, fetch)
+    return collect_scores(query, fetch) if sports_kind(query) in {'score', 'game'} else collect_details(query, fetch)
 
 
 def sports_answer(pages, query, now, available):
     from bot.sports_queries import sports_kind
     from bot.sports_details import details_answer
-    return score_answer(pages, query, now, available) if sports_kind(query) == "score" else details_answer(pages, query, now, available)
+    if sports_kind(query) == 'series_next':
+        from bot.sports_series import series_answer
+        return series_answer(pages, query, now, available)
+    return score_answer(pages, query, now, available) if sports_kind(query) in {'score', 'game'} else details_answer(pages, query, now, available)
 
 
 def sports_failure(query):

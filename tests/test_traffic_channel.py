@@ -16,7 +16,7 @@ from bot.jsonlog import EventLog
 from bot.service import ChannelError, Decision
 from bot.storage import StateError, StateStore
 from bot.traffic import CENTRAL, is_traffic_question
-from bot.traffic.alerts import select_alerts
+from bot.traffic.alerts import select_alerts, FINGERPRINT_VERSION
 from bot.traffic.api import FeedError, Wisconsin511
 from bot.traffic.channel import TrafficChannel
 from tests.conftest import FakeBackend, FakeClock, Harness, make_config
@@ -352,6 +352,7 @@ async def test_all_channels_preflight_and_ai_redirect(tmp_path, monkeypatch):
         await service.start()
         assert cfg.channel_indices == (1,3)
         worker = service.services[3].traffic_channel
+        worker.wall_clock = lambda: NOW
         await worker.refresh()
         await worker.publish_pending()
         assert radio.commands.sent[-1][0] == 3
@@ -547,7 +548,7 @@ async def test_legacy_receipts_migrate_silently_and_keep_claim_time(traffic):
     await worker.publish_pending()
     assert len(h.sent) == 1 and 'WIS 19' in h.sent[-1][1]
     receipt = worker.state['seen']['event:22']
-    assert receipt['fingerprint_version'] == 2 and receipt['at'] == NOW-100
+    assert receipt['fingerprint_version'] == FINGERPRINT_VERSION and receipt['at'] == NOW-100
     assert receipt['fingerprint'] == worker.current[0].fingerprint
     assert worker.state['seen']['event:999'] == legacy['seen']['event:999']
     # It can appear much later; the legacy receipt is still migrated without a post.
@@ -555,7 +556,7 @@ async def test_legacy_receipts_migrate_silently_and_keep_claim_time(traffic):
     worker.api.data['event'].append(late)
     await worker.refresh()
     await worker.publish_pending()
-    assert len(h.sent) == 1 and worker.state['seen']['event:999']['fingerprint_version'] == 2
+    assert len(h.sent) == 1 and worker.state['seen']['event:999']['fingerprint_version'] == FINGERPRINT_VERSION
     restored = TrafficChannel(h.service, worker.api, clock=clock, wall_clock=clock)
     restored.prepare(h.service._state_store)
     await restored.refresh()
@@ -582,7 +583,7 @@ async def test_migration_write_failure_preserves_receipts_and_sends_nothing(traf
     assert h.service._state_store.load_traffic() == legacy
 
 
-@pytest.mark.parametrize('changes', [{'fingerprint_version':3}, {'full':1}, {'blocked_lanes':-1},
+@pytest.mark.parametrize('changes', [{'fingerprint_version':999}, {'full':1}, {'blocked_lanes':-1},
     {'hazards':['unknown']}, {'hazards':['ice','ice']}, {'attempted':'yes'}])
 async def test_invalid_fact_receipts_fail_closed(traffic, changes):
     h, worker, _ = traffic

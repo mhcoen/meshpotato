@@ -91,9 +91,9 @@ async def test_pass_after_a_repeat_nudge_sends_contextual_fallback(harness):
 
 
 async def test_pass_on_a_question_gets_one_retry(harness):
-    h = harness(backend=FakeBackend(replies=["PASS", "I do not have that address."]))
-    assert await h.say("Alice: What's the address of the Menard's in Monona?") is Decision.ANSWERED
-    assert h.sent[-1][1] == "@[Alice] I do not have that address."
+    h = harness(backend=FakeBackend(replies=["PASS", "A postal address identifies a delivery location."]))
+    assert await h.say("Alice: What is a postal address?") is Decision.ANSWERED
+    assert h.sent[-1][1] == "@[Alice] A postal address identifies a delivery location."
     assert "PASS is not allowed" in h.backend.calls[-1][-1]["content"]
     assert h.inbound_records()[-1]["retries"] == 1
 
@@ -105,8 +105,9 @@ async def test_pass_twice_on_a_question_sends_a_contextual_fallback(harness):
 
 
 async def test_pass_on_an_unmarked_question_is_retried_and_a_remark_is_not(harness):
-    h = harness(backend=FakeBackend(replies=["PASS", "I do not have that address."]), global_burst=9, sender_burst=9)
-    assert await h.say("Alice: What's the address of the Menard's in monona") is Decision.ANSWERED
+    h = harness(backend=FakeBackend(replies=["PASS", "A postal address identifies a delivery location."]), global_burst=9, sender_burst=9)
+    assert await h.say("Alice: What is a postal address") is Decision.ANSWERED
+    assert len(h.backend.calls) == 2
     h2 = harness(backend=FakeBackend(reply="PASS"))
     assert await h2.say("Bob: Bot is coming down for a lobotomy") is Decision.DECLINED
     assert len(h2.backend.calls) == 1

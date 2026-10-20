@@ -47,9 +47,9 @@ class TrafficChannel:
                         or not isinstance(receipt.get('at'), (int, float)) or not math.isfinite(receipt['at'])):
                     raise StateError('Invalid saved traffic receipt; preserved for recovery.')
                 scheme = receipt.get('fingerprint_version', 1)
-                if type(scheme) is not int or scheme not in {1, FINGERPRINT_VERSION}:
+                if type(scheme) is not int or scheme not in {1, 2, FINGERPRINT_VERSION}:
                     raise StateError('Unsupported traffic fingerprint version; preserved for recovery.')
-                if scheme == FINGERPRINT_VERSION:
+                if scheme >= 2:
                     lanes, hazards = receipt.get('blocked_lanes'), receipt.get('hazards')
                     if (type(receipt.get('full')) is not bool or 'blocked_lanes' not in receipt
                             or type(receipt.get('attempted', True)) is not bool
@@ -57,6 +57,9 @@ class TrafficChannel:
                             or not isinstance(hazards, list) or any(not isinstance(h, str) or h not in HAZARD_PATTERNS for h in hazards)
                             or hazards != sorted(set(hazards))):
                         raise StateError('Invalid traffic fingerprint facts; preserved for recovery.')
+                if 'broadcast_key' in receipt and (not isinstance(receipt['broadcast_key'], str)
+                        or not re.fullmatch('[0-9a-f]{64}', receipt['broadcast_key'])):
+                    raise StateError('Invalid traffic broadcast receipt; preserved for recovery.')
             self.state = saved
 
     def start(self):
@@ -79,21 +82,21 @@ class TrafficChannel:
     def _receipt(alert, at, *, attempted=True):
         return {'fingerprint': alert.fingerprint, 'fingerprint_version': FINGERPRINT_VERSION,
                 'at': at, 'full': alert.full, 'blocked_lanes': alert.blocked_lanes,
-                'hazards': list(alert.hazards), 'attempted': attempted}
+                'hazards': list(alert.hazards), 'attempted': attempted, 'broadcast_key': alert.broadcast_key}
 
     async def refresh(self):
         async with self.lock:
             try:
                 snapshot = await self.api.snapshot()
                 current = select_alerts(snapshot, self.wall_clock(), self.counties,
-                                        self.service.cfg.traffic_lookahead_h*3600)
+                                        self.service.cfg.traffic_lookahead_h*3600, deduplicate=False)
                 state = copy.deepcopy(self.state)
                 # Baseline previously attempted identifiers once under the new scheme.
                 # Preserve their actual claim times, including receipts for absent events.
                 for alert in current:
                     previous = state['seen'].get(alert.identifier)
-                    if previous is not None and previous.get('fingerprint_version', 1) == 1:
-                        state['seen'][alert.identifier] = self._receipt(alert, previous['at'])
+                    if previous is not None and previous.get('fingerprint_version', 1) != FINGERPRINT_VERSION:
+                        state['seen'][alert.identifier] = self._receipt(alert, previous['at'], attempted=previous.get('attempted', True))
                 if not state['initialized']:
                     state['initialized'] = True
                     if not self.service.cfg.traffic_announce_existing:
@@ -101,10 +104,14 @@ class TrafficChannel:
                             state['seen'][alert.identifier] = self._receipt(alert, self.wall_clock(), attempted=False)
                 if state != self.state:
                     self._save(state)
-                self.current = current
+                # Migrate receipts for every source ID before merging aliases.
+                unique = {}
+                for alert in current:
+                    unique.setdefault(alert.broadcast_key, alert)
+                self.current = list(unique.values())
                 self.rejected.intersection_update(a.rejection_key for a in current)
                 self.last_success = self.clock()
-                self.service.log.emit('traffic_alert_refresh', outcome='ready', significant=len(current))
+                self.service.log.emit('traffic_alert_refresh', outcome='ready', significant=len(self.current))
                 return True
             except asyncio.CancelledError:
                 raise
@@ -119,6 +126,8 @@ class TrafficChannel:
         return (self.fresh() and alert.relevant(self.wall_clock(), self.service.cfg.traffic_lookahead_h*3600)
                 and alert.rejection_key not in self.rejected
                 and self.state['seen'].get(alert.identifier, {}).get('fingerprint') != alert.fingerprint
+                and not any(r.get('broadcast_key') == alert.broadcast_key and r.get('attempted', True)
+                            for r in self.state['seen'].values())
                 and self._repeat_allowed(alert)
                 and any(a.identifier == alert.identifier and a.fingerprint == alert.fingerprint for a in self.current))
 

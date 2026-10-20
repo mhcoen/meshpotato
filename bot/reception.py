@@ -15,16 +15,24 @@ _RECEPTION_RE = re.compile(
 )
 
 # Appended to the persona for a reception question. In the funny voice the joke
-# otherwise wins over the numbers, and a direct message was once described as
-# having hopped through repeaters.
+# otherwise wins over the numbers. Zero reported hops alone is not proof of an
+# authenticated direct link.
 RECEPTION_VOICE = (
     "If the message asks how it was received or how strong it was, state the RSSI, SNR and hop count from "
-    "the reception block plainly first, treat a hop count of 0 as a direct reception with no repeater, and "
+    "the reception block plainly first, treat a hop count of 0 as no repeater hops reported, and "
     "keep the rest short; if it asks about something else, answer that instead."
 )
 
 
 def asks_about_reception(prompt: str) -> bool:
+    text = prompt.lower().replace('’', "'")
+    if re.search(r"\b(?:not|wasn't|isn't|don't|didn't)\b.{0,35}\b(?:asking|ask|want|request)\b.{0,30}\b(?:signal|reception|rssi|snr)\b", text):
+        return False
+    personal = re.search(r"\b(?:my|this|that|your) (?:message|packet|signal|transmission|reception|snr|rssi|hops?)\b|\b(?:hear|heard|hearing|reach|reached) (?:me|us|you)\b", text)
+    if not personal and re.search(r"\b(?:in general|time ?out|timeouts?|hop limits?|limit|limits|bytes?|ids?|protocol|forwarding|duplicate|duplicates|hash|hashes|what is|what does|explain|define)\b", text):
+        return False
+    if not personal and re.search(r'\b\d+ hops?\b', text):
+        return False
     return bool(_RECEPTION_RE.search(prompt))
 
 

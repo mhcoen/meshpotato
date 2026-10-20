@@ -278,6 +278,8 @@ def reply_problem(body: str, prompt: str, same_sender: list[str], other_senders:
     where radio imagery is on topic and the metaphor check does not apply."""
     if has_mention(body):
         return Problem("mention")
+    if unsupported_action(body):
+        return Problem('unsupported-action', body)
     if incomplete_request(body, prompt):
         return Problem('unfulfilled', body)
     if is_parrot(body, prompt):
@@ -293,6 +295,15 @@ def reply_problem(body: str, prompt: str, same_sender: list[str], other_senders:
         if metaphor is not None:
             return Problem("radio-metaphor", metaphor)
     return None
+
+
+def unsupported_action(body: str) -> bool:
+    """Reject claims of operator-only actions, not ordinary conversation memory."""
+    text = body.replace('’', "'")
+    return bool(re.search(
+        r"\bI(?:'ll| will| have|'ve| am going to| just)?\s+(?:(?:noted|saved)\b.{0,50}?\band\s+(?:will\s+)?)?"
+        r"(?:remove[ds]?|delet(?:e[ds]?|ing)|disabl(?:e[ds]?|ing)|chang(?:e[ds]?|ing)|upgrad(?:e[ds]?|ing)|schedul(?:e[ds]?|ing)|reboot(?:ed)?)\b"
+        r".{0,60}\b(?:tips?|announcements?|settings?|configuration|software|model|host|computer|reminder)\b", text, re.I))
 
 
 def incomplete_request(body: str, prompt: str) -> bool:
@@ -326,6 +337,8 @@ def incomplete_request(body: str, prompt: str) -> bool:
 
 def nudge(problem: Problem) -> str:
     """The extra user turn for the one retry. It never offers PASS: given the exit, the model takes it."""
+    if problem.kind == 'unsupported-action':
+        return 'You cannot change software, settings or tips, reboot devices or schedule future work. Explain what the operator must do; do not claim or promise that you did it.'
     if problem.kind == 'unfulfilled':
         return 'The requested content is missing. Supply the actual short answer or creative text, not a preamble, promise or unsupported capability refusal.'
     if problem.kind == "mention":

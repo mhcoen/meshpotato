@@ -30,14 +30,24 @@ run. A live instance answers on `#ai` in southern Wisconsin, centered on Madison
   answer with a place (or the missing US state) within two minutes to continue
   your weather request. A state alone, such as `NY`, asks for a city; `NYC`
   selects New York City.
+  Sports questions support ALCS, NLCS and World Series games, plus short
+  follow-ups such as "next game?" and "what's the score?" after a team lookup.
+  "What time is the Brewers game?" checks today's game; "next game" checks
+  the upcoming schedule. Times and scores come from verified ESPN feed fields.
 - **Plays chess.** An optional `#chess` channel runs Stockfish with saved games
   per player, adjustable difficulty, hints, draw claims and move history.
 - **Reports traffic.** An optional `#traffic` channel announces serious
   Wisconsin 511 incidents and closures, answers "current alerts", and serves
   Madison Beltline travel times. Routine congestion stays quiet.
+  Long alerts keep the alert type and an excerpt of the actual details, with
+  `511wi.gov` for the rest. Equivalent reports with different source IDs are
+  announced once. Old travel times are marked "current unavailable" and retain
+  their observation timestamps.
 - **Has personalities.** Nice by default; `/funny`, `/snarky`, `/marvin`,
   `/pirate`, `/haiku` and `/serious` on request, reverting after two hours.
   A silly fortune arrives a little after six every morning.
+  Changing the scheduled tips or the bot's software requires its operator;
+  a chat reply cannot make those changes.
 - **Treats the channel as hostile.** Every incoming line, the assembled
   context and every outgoing reply pass a sub-millisecond prompt injection
   detector before they can reach the model or the radio.

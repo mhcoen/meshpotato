@@ -45,7 +45,13 @@ def factual_self_reply(prompt, cfg, active_persona, remaining_s=None):
     """Narrow factual intents only; creative requests still go to the model."""
     q = ' '.join(prompt.lower().replace('’', "'").split())
     p = cfg.command_prefix
-    from bot.sports_queries import has_team
+    from bot.sports_queries import has_team, series_definition
+    if definition := series_definition(prompt):
+        return definition
+    if re.search(
+            r'\b(?:remove|delete|disable|stop|change|turn off)\s+(?:(?:the|your|this|that|these|those|usage|scheduled)\s+)*(?:tips?|announcements?)\b'
+            r'|\b(?:your|this|that|these|those|ridiculous|usage|scheduled)\b.{0,35}\b(?:tips?|announcements?)\b.{0,70}\b(?:remove|delete|disable|stop|change|turn off)\b', q):
+        return 'My operator can change or remove usage tips and announcements; I cannot change those settings from chat.'
     if re.fullmatch(r'(?:where (?:is|does) (?:this bot|the bot|mesh potato|you)(?: run| live)?|what (?:do you|does this bot) run on)[?.!]*', q):
         return 'I run on a computer connected to a MeshCore radio; the radio carries my messages.'
     if (re.search(r'\b(?:you|bot|mesh potato)\b', q)
