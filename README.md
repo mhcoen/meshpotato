@@ -55,7 +55,9 @@ run. A live instance answers on `#ai` in southern Wisconsin, centered on Madison
   own transmissions, measures that from the radio's airtime counters, never
   replies closer than 15 seconds apart, and backs off when the channel is busy.
 - **Watches itself.** A terminal monitor shows each channel, the shared radio,
-  rate limits and every decision. Headless mode writes JSON lines for services.
+  rate limits and every decision. Monitor timestamps use the computer's local
+  time with a time zone label; the shared radio events and errors panel also
+  shows the date. JSON logs retain UTC timestamps for services.
 
 Everything runs locally: a local model through Ollama or any OpenAI-compatible
 endpoint, a SQLite file for memory, and a Python package with a test suite that

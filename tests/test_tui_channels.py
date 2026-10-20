@@ -1,4 +1,6 @@
 """Headless terminal layout and routing tests, with no radio/model/network access."""
+import time
+
 import pytest
 from textual.widgets import RichLog, Tabs
 
@@ -29,6 +31,34 @@ def send(app, idx, event='inbound', **fields):
 
 def displayed(app, selector):
     return '\n'.join(line.text for line in app.query_one(selector, RichLog).lines)
+
+
+@pytest.mark.skipif(not hasattr(time, 'tzset'), reason='requires process time zone control')
+@pytest.mark.parametrize(('timestamp', 'expected'), [
+    ('2026-10-10T16:13:05.715+00:00', '2026-10-10 11:13:05 CDT'),
+    ('2026-10-10T02:13:05Z', '2026-10-09 21:13:05 CDT'),
+    ('2026-12-10T16:13:05+00:00', '2026-12-10 10:13:05 CST'),
+])
+async def test_local_event_times_and_shared_dates(monkeypatch, timestamp, expected):
+    try:
+        with monkeypatch.context() as env:
+            env.setenv('TZ', 'America/Chicago')
+            time.tzset()
+            app = monitor()
+            async with app.run_test(size=(160, 44)) as pilot:
+                await pilot.pause()
+                record = dict(ts=timestamp, channel_idx=1, event='inbound',
+                              sender='Ckemtp', prompt='Thanks!', decision='dropped:chatter')
+                app._on_record(record)
+                await pilot.pause()
+                assert f'[ch 1] {expected} Ckemtp: Thanks!' in displayed(app, '#log')
+                assert expected[11:] in displayed(app, '#channel-1')
+                assert record['ts'] == timestamp
+                await pilot.resize_terminal(80, 24)
+                await pilot.pause()
+                assert expected in displayed(app, '#log')
+    finally:
+        time.tzset()
 
 
 async def test_columns_route_messages_alerts_and_shared_errors():

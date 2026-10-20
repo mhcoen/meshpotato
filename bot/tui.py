@@ -6,6 +6,7 @@ import asyncio
 import time
 from collections import deque
 from collections.abc import Awaitable, Callable
+from datetime import datetime, timezone
 from typing import Any
 
 from textual.app import App, ComposeResult
@@ -242,7 +243,16 @@ class MeshPotatoApp(App[None]):
 
     def _on_record(self, record: dict[str, Any]) -> None:
         event = record.get("event")
-        ts = str(record.get("ts", ""))[11:19]
+        raw_ts = str(record.get("ts", ""))
+        try:
+            timestamp = datetime.fromisoformat(raw_ts)
+            if timestamp.tzinfo is None:
+                timestamp = timestamp.replace(tzinfo=timezone.utc)
+            local = timestamp.astimezone()
+            date = local.strftime("%Y-%m-%d")
+            ts = local.strftime("%H:%M:%S %Z")
+        except ValueError:
+            date, ts = raw_ts[:10], raw_ts[11:19]
         if event == "inbound":
             decision = record.get("decision", "")
             extra = ""
@@ -288,8 +298,10 @@ class MeshPotatoApp(App[None]):
             line = f"{ts} [{event}] {details}"
         else:
             return  # per-poll utilization records are shown in the panel, not the log
+        shared_line = f"{date} {line}"
         if "channel_idx" in record:
             line = f"[ch {record['channel_idx']}] {line}"
+            shared_line = f"[ch {record['channel_idx']}] {shared_line}"
         try:
             idx = record.get('channel_idx')
             channel_lines = getattr(self, '_lines', {})
@@ -305,7 +317,7 @@ class MeshPotatoApp(App[None]):
                       or event == 'inbound' and str(record.get('decision', '')).startswith('dropped:'))
             if shared:
                 if hasattr(self, '_shared_lines'):
-                    self._shared_lines.append(line)
-                self.query_one("#log", RichLog).write(line)
+                    self._shared_lines.append(shared_line)
+                self.query_one("#log", RichLog).write(shared_line)
         except Exception:  # noqa: BLE001 - widget may not be mounted yet
             pass
