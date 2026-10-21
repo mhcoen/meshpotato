@@ -13,6 +13,10 @@ from bot.lookup_messages import WEATHER_UNAVAILABLE as UNAVAILABLE
 from bot.lookup_messages import WEATHER_LOCATION_UNAVAILABLE as LOCATION_UNAVAILABLE
 
 CLARIFY = "Which city and state or country do you mean?"
+# General surface-temperature examples, not a current lunar observation.
+# https://science.nasa.gov/moon/weather-on-the-moon/
+MOON_WEATHER = ("The Moon has no Earth-like weather. Near its equator, surface temperatures "
+                "can exceed 250F by day and fall to -208F at night.")
 MAX_AGE_S = 900
 STATES = dict(zip(
     ('Alabama|Alaska|Arizona|Arkansas|California|Colorado|Connecticut|Delaware|Florida|Georgia|Hawaii|Idaho|Illinois|Indiana|Iowa|Kansas|Kentucky|Louisiana|Maine|Maryland|Massachusetts|Michigan|Minnesota|Mississippi|Missouri|Montana|Nebraska|Nevada|New Hampshire|New Jersey|New Mexico|New York|North Carolina|North Dakota|Ohio|Oklahoma|Oregon|Pennsylvania|Rhode Island|South Carolina|South Dakota|Tennessee|Texas|Utah|Vermont|Virginia|Washington|West Virginia|Wisconsin|Wyoming|District of Columbia').split('|'),
@@ -37,13 +41,21 @@ def normalize_location(place):
     return ', '.join(parts)
 
 
-def weather_followup(prompt, previous_place):
-    """Interpret a short location answer only while a clarification is pending."""
+def weather_followup(prompt, previous_place, *, clarify=True):
+    """Resolve a location continuation in this sender's recent weather exchange."""
     text = prompt.strip().rstrip('.?!')
+    text = re.sub(r'^(?:okay|ok|well|no)[,\s]+', '', text, flags=re.I)
+    replacement = bool(re.match(r'^(?:how about|what about|and|instead(?: of that)?[, ]+try|try)\s+', text, re.I))
+    text = re.sub(r'^(?:how about|what about|and|instead(?: of that)?[, ]+try|try)\s+', '', text, flags=re.I)
+    if re.search(r'\s+instead$', text, re.I):
+        replacement = True
+        text = re.sub(r'\s+instead$', '', text, flags=re.I)
     if (not 2 <= len(text) <= 80 or len(text.split()) > 6
             or not re.fullmatch(r"[\w\s,.'-]+", text)
             or re.search(r'\b(?:what|why|how|weather|wx|forecast|sports|traffic|write|tell|'
-                         r'explain|joke|poem|you|bot|thanks|never mind|forget|cancel)\b', text, re.I)):
+                         r'explain|joke|poem|you|bot|thanks|thank|hello|good|great|'
+                         r'i|my|it|this|that|can|could|would|does|did|will|'
+                         r'never mind|forget|cancel)\b', text, re.I)):
         return None
     text = re.sub(r'^(?:in|at|for)\s+', '', text, flags=re.I)
     text = normalize_location(text)
@@ -51,10 +63,10 @@ def weather_followup(prompt, previous_place):
     previous_state = STATE_ALIASES.get(previous_place.casefold())
     reply_state = STATE_ALIASES.get(text.casefold())
     # A state alone refines the city we asked about, e.g. Madison -> Wisconsin.
-    if previous_place and reply_state and not previous_state:
+    if clarify and not replacement and previous_place and reply_state and not previous_state:
         text = previous_place.split(',')[0] + ', ' + text
     # Conversely, NY -> Albany must keep the state rather than search all Albanys.
-    elif previous_state and not reply_state and ',' not in text:
+    elif clarify and not replacement and previous_state and not reply_state and ',' not in text:
         text += ', ' + previous_state
     return 'weather in ' + text
 
@@ -70,7 +82,7 @@ def weather_location(prompt, default=''):
     match = re.fullmatch(
         r"(?:(?:what(?:'s| is)|how(?:'s| is)) (?:the )?|(?:give me|show me) (?:the )?)?"
         r"(?:(?:daily|current|today's|tomorrow's) )?(?:weather|wx|forecast)"
-        r"(?: (?:today|tomorrow))?(?:\s+(?:(?:in|for|at)\s+)?(.+?))?", text, re.I)
+        r"(?: (?:today|tomorrow))?(?:\s+(?:(?:in|for|at|on)\s+)?(.+?))?", text, re.I)
     if not match:
         return None
     place = match[1] or default
@@ -78,6 +90,14 @@ def weather_location(prompt, default=''):
     if re.search(r'\b(?:yesterday|last|next|week|month|year|was|will|why|how|and)\b|\d{4}-\d{2}', place, re.I):
         return None
     return normalize_location(place)
+
+
+def lunar_weather_answer(prompt):
+    """Keep Earth's Moon out of the Earth geocoder; qualified towns still work."""
+    place = weather_location(prompt)
+    if place is not None and place.casefold() in {'moon', 'the moon', "earth's moon"}:
+        return MOON_WEATHER
+    return ''
 
 
 def _number(value, low, high):

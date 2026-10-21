@@ -29,10 +29,15 @@ run. A live instance answers on `#ai` in southern Wisconsin, centered on Madison
   found, the reply says weather information is unavailable for that location;
   service failures receive a separate retry notice.
   Locations accept `Madison WI` and `NYC`, including natural questions such as
-  `What’s the weather in Madison WI?`. After a location clarification,
-  answer with a place (or the missing US state) within two minutes to continue
-  your weather request. A state alone, such as `NY`, asks for a city; `NYC`
-  selects New York City.
+  `What’s the weather in Madison WI?`. Within two minutes of a weather reply,
+  a location follow-up such as `Okay, how about NYC?` fetches a new forecast,
+  including after an unsuccessful lookup. Context belongs to that sender and
+  clears on a topic change or `/forget`. After a location clarification, a
+  missing US state also works. A state alone, such as `NY`, asks for a city;
+  `NYC` selects New York City. Moon weather questions get a
+  [NASA-based explanation](https://science.nasa.gov/moon/weather-on-the-moon/)
+  of lunar surface temperatures, rather than an Earth city lookup or a claim
+  to have a current lunar measurement.
   Sports questions support ALCS, NLCS and World Series games, plus short
   follow-ups such as "next game?" and "what's the score?" after a team lookup.
   "What time is the Brewers game?" checks today's game; "next game" checks

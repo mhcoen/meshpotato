@@ -225,7 +225,7 @@ async def test_weather_clarification_continues_lookup_without_model(harness, clo
     assert await h.say('Michael: ' + followup) == Decision.ANSWERED
     assert expected in h.sent[-1][1] and '°F' in h.sent[-1][1]
     assert h.service.web.search.call_count == 2 and not h.backend.calls
-    assert not h.service._weather_clarifications
+    assert h.service._weather_contexts['Michael'][0] == expected
 
 
 @pytest.mark.parametrize('sender,elapsed,interruption', [
@@ -236,7 +236,7 @@ async def test_weather_clarification_is_personal_expires_and_clears(harness, clo
     h = harness(web_enabled=True)
     h.service.web.search = AsyncMock(return_value=[{'weather_error': 'location'}])
     await h.say('Michael: Weather at New York')
-    assert 'Michael' in h.service._weather_clarifications
+    assert 'Michael' in h.service._weather_contexts
     clock.advance(elapsed)
     if interruption:
         await h.say('Michael: ' + interruption)
@@ -251,7 +251,7 @@ async def test_unsent_weather_clarification_is_not_remembered(harness):
     h.service.web.search = AsyncMock(return_value=[{'weather_error': 'location'}])
     h.mc.commands.send_result_type = EventType.ERROR
     assert await h.say('Michael: Weather at New York') == Decision.DROP_SEND_FAILED
-    assert not h.service._weather_clarifications
+    assert not h.service._weather_contexts
 
 
 async def test_forget_during_weather_clarification_does_not_restore_context(harness, monkeypatch):
@@ -269,7 +269,7 @@ async def test_forget_during_weather_clarification_does_not_restore_context(harn
     await h.say('Michael: /forget')
     release.set()
     await asyncio.wait_for(question, 1)
-    assert not h.service._weather_clarifications
+    assert not h.service._weather_contexts
 
 
 @pytest.mark.parametrize('response', [{'generationtime_ms': 0.49}, {'results': []}])
@@ -349,3 +349,93 @@ def test_worker_routes_weather_without_general_search(monkeypatch, prompt):
     monkeypatch.setattr(web_sources, 'fetch_page', lambda url, **kw: fetcher()(url))
     monkeypatch.setattr(web_sources, 'DDGS', lambda **kw: pytest.fail('must not search'))
     assert web_sources.collect(prompt)[0]['location']=='Madison, WI'
+
+
+@pytest.mark.parametrize('prompt', [
+    'What’s the weather on the moon?', 'Weather on the Moon today',
+    'weather for the moon', '/web weather on the moon', '/weather on the moon',
+])
+async def test_lunar_weather_is_factual_without_earth_lookup_or_model(harness, prompt):
+    from bot.weather import MOON_WEATHER
+    h = harness(web_enabled=True, bot_name='Mesh Potato', reply_max_chars=147,
+                backend=FakeBackend(error=AssertionError('no model for lunar weather')))
+    h.service.web.search = AsyncMock(side_effect=AssertionError('Moon is not an Earth city'))
+    assert await h.say('Michael: ' + prompt) == Decision.ANSWERED
+    assert h.sent[-1][1] == '@[Michael] ' + MOON_WEATHER
+    assert len(('Mesh Potato: ' + h.sent[-1][1]).encode()) <= WIRE_TEXT_MAX
+    assert not h.backend.calls and not h.service.web.search.called
+
+
+@pytest.mark.parametrize('followup', [
+    'Okay, how about NYC?', 'How about New York City?', 'What about NYC?',
+    'NYC', 'New York City instead', 'No, try NYC',
+])
+@pytest.mark.parametrize('first', ['moon', 'missing', 'outage', 'success'])
+async def test_location_change_after_any_weather_answer_fetches_real_data(harness, clock, first, followup):
+    """Replay the reported exchange through parsing, routing, validation and fake send."""
+    from bot.weather import MOON_WEATHER
+    h = harness(web_enabled=True, bot_name='Mesh Potato', reply_max_chars=147,
+                backend=FakeBackend(error=AssertionError('weather must never reach model')))
+    coordinates = []
+    def fetch(url):
+        query = parse_qs(urlsplit(url).query)
+        if urlsplit(url).hostname == 'geocoding-api.open-meteo.com':
+            assert query['name'] == ['New York, NY']
+            return {'results': [{'name': 'New York', 'admin1': 'New York',
+                                 'country_code': 'US', 'latitude': 40.71427, 'longitude': -74.00597}]}
+        coordinates.append((float(query['latitude'][0]), float(query['longitude'][0])))
+        return forecast(datetime.now(timezone.utc))
+    def search(query):
+        if query.startswith('weather Nowhere'):
+            if first == 'outage':
+                raise TimeoutError('fixture outage')
+            return [{'weather_error': 'location-not-found'}]
+        if query.startswith('weather Madison'):
+            return pages(datetime.now(timezone.utc))
+        return collect_weather(query, fetch)
+    h.service.web.search = AsyncMock(side_effect=search)
+    initial = {'moon': 'What’s the weather on the moon?', 'missing': 'Weather Nowhere',
+               'outage': 'Weather Nowhere', 'success': 'Weather Madison, Wisconsin'}[first]
+    assert await h.say('Michael: ' + initial) == Decision.ANSWERED
+    if first == 'moon':
+        assert MOON_WEATHER in h.sent[-1][1]
+    clock.advance(30)
+    assert await h.say('Michael: ' + followup) == Decision.ANSWERED
+    assert 'New York, NY' in h.sent[-1][1] and '55' in h.sent[-1][1]
+    assert coordinates == [(40.71427, -74.00597)]
+    assert not h.backend.calls
+    assert len(('Mesh Potato: ' + h.sent[-1][1]).encode()) <= WIRE_TEXT_MAX
+
+
+@pytest.mark.parametrize('previous,followup,expected', [
+    ('the moon', 'Okay, how about NYC?', 'weather in New York, NY'),
+    ('Madison', 'How about Wisconsin?', 'weather in Wisconsin'),
+    ('NY', 'How about Albany?', 'weather in Albany'),
+    ('the moon', 'thanks', None), ('the moon', 'write a poem', None),
+    ('the moon', 'sounds good', None), ('the moon', 'I spilled espresso', None), ('the moon', 'what about sports?', None),
+    ('the moon', 'how about weather in NYC?', None),
+])
+def test_weather_location_changes_do_not_inherit_old_qualifiers(previous, followup, expected):
+    assert weather_followup(followup, previous, clarify=False) == expected
+
+
+@pytest.mark.parametrize('sender,elapsed,interruption', [
+    ('Other', 20, None), ('Michael', 121, None),
+    ('Michael', 20, '/forget'), ('Michael', 20, 'write a poem'),
+])
+async def test_lunar_weather_context_is_personal_and_cleared(harness, clock, sender, elapsed, interruption):
+    h = harness(web_enabled=True)
+    h.service.web.search = AsyncMock(return_value=pages(datetime.now(timezone.utc)))
+    await h.say('Michael: Weather on the moon')
+    clock.advance(elapsed)
+    if interruption:
+        await h.say('Michael: ' + interruption)
+        clock.advance(20)
+    await h.say(sender + ': Okay, how about NYC?')
+    assert not h.service.web.search.called
+
+
+def test_town_named_moon_is_not_given_lunar_temperatures():
+    from bot.weather import lunar_weather_answer
+    assert not lunar_weather_answer('Weather in Moon, Pennsylvania')
+    assert weather_location('Weather in Moon, Pennsylvania') == 'Moon, Pennsylvania'
