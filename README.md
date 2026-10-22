@@ -64,7 +64,9 @@ run. A live instance answers on `#ai` in southern Wisconsin, centered on Madison
   City notices are published plans, not live measurements: unclear dates or scope
   are omitted, phased work retains its qualifications, and a notice disappearing
   never means a road reopened. Sources refresh independently; `/status`
-  identifies fresh, partial or unavailable coverage. The older Madison ArcGIS closure layer is archival and is
+  identifies fresh, partial or unavailable coverage. Partial coverage can reflect
+  fetch failures, parsing errors or notices whose dates or scope cannot be verified;
+  it does not mean the pages are missing. The older Madison ArcGIS closure layer is archival and is
   not used. See [traffic coverage and limitations](bot/traffic/README.md#madison-closure-notices)
   for matching rules, supported updates and freshness limits.
   Long 511 alerts keep the alert type and an excerpt of the actual details, with
@@ -80,8 +82,9 @@ run. A live instance answers on `#ai` in southern Wisconsin, centered on Madison
   context and every outgoing reply pass a sub-millisecond prompt injection
   detector before they can reach the model or the radio.
 - **Is polite on the air.** It targets about 2 percent of channel time for its
-  own transmissions, measures that from the radio's airtime counters, never
-  replies closer than 15 seconds apart, and backs off when the channel is busy.
+  own transmissions and measures that from the radio's airtime counters. Ordinary
+  replies are spaced at least 15 seconds apart under the default limits. Requested
+  traffic batches use two-second gaps within the batch. Congestion can delay both.
 - **Watches itself.** A terminal monitor shows each channel, the shared radio,
   rate limits and every decision. Monitor timestamps use the computer's local
   time with a time zone label; the shared radio events and errors panel also

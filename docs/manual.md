@@ -21,8 +21,9 @@ its own instructions: [#chess README](chess/README.md) and
 A live instance runs on the `#ai` channel of the MeshCore mesh in
 southern Wisconsin, centered on Madison. If you are on that mesh, add `#ai`
 in your MeshCore app and say something. It targets about 2 percent of the
-channel's time for its own transmissions, never answers closer than 15 seconds
-apart, and backs off when the channel is busy. Questions wait in a bounded
+channel's time for its own transmissions. Ordinary replies are spaced at least
+15 seconds apart under the default limits; requested traffic batches use
+two-second gaps within the batch. Congestion can delay both. Questions wait in a bounded
 queue, so a delayed answer can mean congestion rather than a fault.
 
 ## Screenshots
@@ -329,13 +330,17 @@ available on request. In #traffic, `/reports` automatically sends up to five
 numbered reports, one per message. If there are more, `/cont` requests the next
 group of five; `/reports` starts over. Messages within a requested group are spaced two seconds apart after the
 first. The whole batch uses one normal request allowance, which refills from the
-first send; follow-up reports do not add a cooldown.
+first send; follow-up reports do not add a cooldown. The final report omits
+"End of reports" if needed to fit the complete closure text; "N of N" still
+marks the end.
 Congestion still pauses sending; automatic announcements keep their normal limits. `/help` explains this flow,
 `/examples` gives travel-time requests, and `/commands` explains the other
 commands. `/about` shows the traffic version,
 sources and computer/radio arrangement, and `/source` gives the repository link.
 Use `/details` for the last report's source and `/status` for
-independent 511/city coverage. `traffic_madison_preview = true` logs proposed city
+independent 511/city coverage. Partial city coverage can mean a fetch failure, a
+parser error or a notice with unclear dates or scope; it does not establish that
+a page is missing. `traffic_madison_preview = true` logs proposed city
 posts without sending them; 511 broadcasts continue. Repeat controls, supported
 updates, coverage limits and receipt migration are documented in the traffic README.
 Setup, help commands, current alert browsing and announcement rules are in the
@@ -556,7 +561,7 @@ The radio needs the MeshCore companion USB firmware, a node name equal to
 
 - A Mac or Linux computer that stays on. This is a good use for an old
   laptop that is sitting in a drawer: the bot needs no screen once it is
-  running, and a reply every 15 seconds at the very most is not much work. The default model
+  running, and ordinary replies are limited to four per minute by default. The default model
   uses about 18 GB of memory; 32 GB of RAM is a comfortable minimum, 64 GB is
   better. Apple Silicon works well.
 - A MeshCore companion radio on USB. Built and tested with a Heltec Wireless
@@ -1177,12 +1182,15 @@ guaranteed controller rates, and the global limit still applies:
 | 0.03 | one reply per 20 s | private or lightly used mesh |
 | 0.05 | one reply per 12 s | only where the bot is the main traffic |
 
-Underneath the dial sit two floors. `global_rate_per_min` (4, so never two
-replies closer than 15 seconds) bounds bursts when the window is still quiet,
-and `sender_rate_per_min` does the same per sender name, which is easy to
-forge and therefore only a politeness measure. Shorter replies
-(`reply_max_chars`) buy more replies for the same budget.
-The default 15 seconds is minimum reply spacing, not a receive refresh interval:
+The shared `global_rate_per_min` and per-sender `sender_rate_per_min` limits
+both default to 4, with a burst capacity of 1. Ordinary replies therefore wait
+at least 15 seconds between sends. A requested traffic batch of up to five
+reports uses one allowance from each limit; follow-ups wait two seconds after
+the preceding send finishes, without adding a per-message cooldown. Automatic
+announcements use normal admission. Sender names are easy to forge, so the
+per-sender limit is only a politeness measure. Shorter replies
+(`reply_max_chars`) use less airtime.
+The default 15 seconds applies to ordinary reply spacing, not receiving:
 messages arrive as events. Utilization checks run over USB every 10 seconds,
 and the terminal refreshes every second; neither adds radio traffic.
 The separate `model_timeout_s` setting allows 25 seconds total to search when
@@ -1192,8 +1200,8 @@ for a quiet channel can add time before transmission.
 Timing matters as much as volume. For a few seconds after any channel
 message, every repeater in range rebroadcasts it, and a reply transmitted
 into that flood is lost to collisions even though a message sent into a quiet
-channel from the same radio gets through fine. The bot therefore holds each
-reply for `reply_delay_s` seconds, two by default, jittered between
+channel from the same radio gets through fine. The bot therefore holds ordinary replies and the first message of a requested
+traffic batch for `reply_delay_s` seconds, two by default, jittered between
 1.6 and 2.8 seconds, counted from the moment the question arrived so the model's
 own latency is absorbed into the wait. The JSON log records the extra hold
 as `held_ms`.

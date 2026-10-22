@@ -301,6 +301,8 @@ uses at most 60 active/recent article URLs per poll, four concurrent requests,
 a 25-second total fetch budget, and a one-megabyte limit per page. Exceeding the
 active-article limit fails the city check instead of silently dropping pages.
 This budget is independent of, and does not change, the chat generation budget.
+The Madison reader identifies itself as Mesh Potato, with its Traffic version and
+repository URL, and requests HTML on both listing and article requests.
 
 ### Previewing and inspecting decisions
 
@@ -312,8 +314,17 @@ allows still-relevant eligible notices to broadcast.
 `traffic_notice_decision` log records contain the source, proposed text, and a
 reason such as "new notice", "already announced", "minor time change",
 "fresh day-before notice" or "cancelled". They are emitted when the inputs or
-reason change. `traffic_city_refresh` records active-report, omitted-article and
-unavailable-article counts.
+reason change. `traffic_city_refresh` records these snapshot counts:
+
+- `reports`: currently relevant city events retained after matching and filtering.
+- `omitted`: fetched articles the parser deliberately cannot turn into a verified
+  traffic notice, for example because dates or directional scope are unclear.
+- `unavailable`: article fetch or parsing exceptions. This count alone does not
+  distinguish HTTP failures from parser bugs, and does not mean pages are missing.
+
+Expired notices do not count as current reports. `/status` marks city coverage
+partial when either `omitted` or `unavailable` is nonzero. Requested reports also
+show "Partial coverage" when either configured source is stale or unavailable.
 The ordinary `traffic_alert_post` log records actual posting outcomes.
 `/status` distinguishes fresh, partial and unavailable city coverage.
 
@@ -387,6 +398,3 @@ reported full closure, multiple blocked lanes or a serious hazard can still
 qualify. Description text contributes recognized hazard categories to the
 fingerprint, rather than its original wording. The safety gate still checks the
 actual rendered text before transmission.
-
-The Madison reader identifies itself as Mesh Potato, with its Traffic version and
-repository URL, and requests HTML on both listing and article requests.
