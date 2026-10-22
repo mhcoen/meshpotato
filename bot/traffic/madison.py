@@ -23,6 +23,7 @@ ORIGIN = 'https://www.cityofmadison.com'
 LIST_URL = ORIGIN+'/transportation/news'
 MAX_ARTICLES = 60
 MONTHS = {name.lower(): i for i in range(1, 13) for name in (calendar.month_name[i], calendar.month_abbr[i])}
+MONTHS['sept'] = 9  # Accept Sept without rewriting the full name September.
 MONTH = r'(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\.?'
 DATE = re.compile(r'\b('+MONTH+r')\s+(\d{1,2})(?:st|nd|rd|th)?(?:\s*[-–]\s*(\d{1,2}))?(?:,?\s+(20\d{2}))?\b', re.I)
 TIME = re.compile(r'\b(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)\b', re.I)
@@ -49,10 +50,12 @@ def compact(text):
 
 def schedule(text, published):
     """Date-only and multi-phase notices stay date-only/multi-phase in the output."""
+    # A month abbreviation is not a sentence boundary when checking closure times.
+    text = re.sub(r"\b("+MONTH+r")(?=\s+\d)", lambda m: m[0].rstrip("."), text, flags=re.I)
     ref = datetime.fromtimestamp(published, CENTRAL)
     dates = []
     for match in DATE.finditer(text):
-        month = MONTHS.get(match[1].lower().rstrip('.').replace('sept', 'sep'))
+        month = MONTHS.get(match[1].lower().rstrip('.'))
         year = int(match[4]) if match[4] else ref.year
         if not match[4] and month < ref.month-6:
             year += 1
@@ -77,7 +80,7 @@ def schedule(text, published):
             return None
         last = start+timedelta(days=amount*(7 if duration[3].lower().startswith('week') else 1))
     if estimated:
-        month = MONTHS[estimated[1].lower().rstrip('.').replace('sept', 'sep')]
+        month = MONTHS[estimated[1].lower().rstrip('.')]
         last = datetime(int(estimated[2]), month, calendar.monthrange(int(estimated[2]), month)[1], tzinfo=CENTRAL)
         estimate_label = last.strftime('%b %Y')+' est.'
     if last < start:

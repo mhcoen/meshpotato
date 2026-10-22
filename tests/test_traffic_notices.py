@@ -682,3 +682,15 @@ async def test_final_dayton_report_keeps_closure_instead_of_end_label(traffic, m
     assert len(('Mesh Potato: '+h.sent[-1][1]).encode()) <= 160
     assert worker.answer('/details', 135, 'Michael M7') == url
     assert worker.answer('/cont', 135, 'Michael M7') == 'End of reports. Use /reports to start again.'
+
+
+@pytest.mark.parametrize('month', ['September', 'september', 'SEPTEMBER', 'Sep', 'Sep.', 'Sept', 'Sept.'])
+def test_september_names_parse_in_dates_and_month_only_estimates(month):
+    published = datetime(2026, 8, 20, tzinfo=CENTRAL).timestamp()
+    start, end, timing, precise, _ = schedule(f'Closed {month} 12 from 8 am to 12 pm.', published)
+    assert datetime.fromtimestamp(start, CENTRAL) == datetime(2026, 9, 12, 8, tzinfo=CENTRAL)
+    assert end-start == 4*3600 and precise
+    assert timing == '9/12 8AM-12PM'
+    start, end, timing, precise, _ = schedule(f'Closed August 31 until approximately {month} 2027.', published)
+    assert datetime.fromtimestamp(end, CENTRAL) == datetime(2027, 10, 1, tzinfo=CENTRAL)
+    assert timing == '8/31 to Sep 2027 est.' and not precise
