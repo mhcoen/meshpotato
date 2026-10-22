@@ -651,3 +651,30 @@ async def test_city_help_describes_local_coverage_and_automatic_posts(traffic):
     policy = worker.answer('/policy', 135)
     assert 'Automatic posts' in policy and 'cancellations' in policy
     assert 'Routine delays do not broadcast' in policy
+
+
+async def test_final_dayton_report_keeps_closure_instead_of_end_label(traffic, monkeypatch):
+    from bot.service import Decision
+    from tests.test_traffic_channel import say_batch
+
+    h, worker, _ = await city_worker(traffic)
+    h.service.cfg = replace(h.cfg, bot_name='Mesh Potato', reply_max_chars=148)
+    h.service._reply_max_bytes = 148
+    worker.city_api.unavailable = 8
+    url = ('https://www.cityofmadison.com/news/2026-10-19/'
+           'closure-of-eastbound-w-dayton-street-between-n-charter-and-n-mills-streets')
+    dayton = parse_notice((FIXTURES/'madison_dayton.html').read_text(), url)
+    original = worker._reports()[0]
+    reports = [original, replace(original, key='second'),
+               planned.PlannedAlert('dayton', dayton, '', 'requested report')]
+    monkeypatch.setattr(worker, '_reports', lambda: reports)
+
+    assert await say_batch(h, 'Michael M7: /reports') == Decision.ANSWERED_TRAFFIC_CHANNEL
+    assert len(h.sent) == 3
+    assert h.sent[-1][1] == (
+        '@[Michael M7] Partial coverage. 3 of 3. '
+        'Eastbound W Dayton St between N Charter and N Mills St: '
+        'eastbound closure planned; 10/26 to Mar 2027 est.')
+    assert len(('Mesh Potato: '+h.sent[-1][1]).encode()) <= 160
+    assert worker.answer('/details', 135, 'Michael M7') == url
+    assert worker.answer('/cont', 135, 'Michael M7') == 'End of reports. Use /reports to start again.'

@@ -47,7 +47,8 @@ run. A live instance answers on `#ai` in southern Wisconsin, centered on Madison
 - **Reports traffic.** An optional `#traffic` channel announces serious
   Wisconsin 511 incidents and closures. `/reports` sends up to five numbered reports, each
   in its own message, spaced two seconds apart after the first. The whole batch
-  uses one normal request allowance; congestion pauses still apply. `/cont` requests
+  uses one normal request allowance; congestion pauses still apply. The final
+  report omits "End of reports" when that space is needed for the closure text. `/cont` requests
   the next group if there are more. `/help` explains how to read them, and `/examples`
   gives travel-time requests to try. It also serves Madison Beltline travel times. With Dane County selected, it also reads official
   Madison transportation notices for major local street and event closures.

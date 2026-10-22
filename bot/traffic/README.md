@@ -117,7 +117,9 @@ the reader to `/details`; their automatic announcements are withheld.
 `/reports` sends the first five reports automatically, one numbered message per
 report. There is no need to reply between messages. If there are more than five,
 the fifth message ends with "Next 5: /cont"; `/cont` sends the next group.
-The final report says "End of reports." `/reports` starts again. `/details`
+The final report says "End of reports" when space allows. If that label would
+prevent the complete report from fitting, it is omitted; "N of N" still marks the
+end. `/reports` starts again. `/details`
 gives the source for the last report viewed. A report too long to fit still
 gets a numbered message pointing to `/details`.
 

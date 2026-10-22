@@ -377,6 +377,12 @@ class TrafficChannel:
                     prefix = ('Partial coverage. ' if partial else '')+f'{index} of {len(items)}. '
                     suffix = (' Next 5: /cont' if index < len(items) else ' End of reports.') if batch_end else ''
                     detail = items[index-1].render(self.wall_clock(), available-len(prefix)-len(suffix))
+                    if not detail and index == len(items) and suffix:
+                        # "N of N" already marks the end. Never discard a complete
+                        # report just to make room for the redundant ending label.
+                        detail = items[index-1].render(self.wall_clock(), available-len(prefix))
+                        if detail:
+                            suffix = ''
                     if detail:
                         text = prefix+detail+suffix
                     else:
