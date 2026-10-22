@@ -1175,17 +1175,24 @@ class BotService:
         sent_count = 0
         reply = None
         state = self._requests[asyncio.current_task()]
+        burst = self.limiter.report_burst(limit, count) if batch else None
+        last_send_at = None
+        deadline = received_at + self.cfg.queue_wait_s
         for page in range(count):
             if page:
-                # Each message gets its own reservation and delivery deadline.
-                # Release ownership so queued requests can run between reports.
-                state.reservation = None  # The preceding send committed it.
-                self._active_request = None
-                self.stats.reply_active = False
-                received_at = self._clock()
-                limit = await self._wait_for_admission(parsed.sender, received_at)
-                if not limit.allowed:
-                    return self._queue_drop(parsed, payload.get('path_len'), limit.reason, pages_sent=sent_count)
+                # Keep the radio queue for this bounded burst. The batch shares
+                # the first message's allowance; every send still checks congestion.
+                while self._clock() < last_send_at + 2.0 or self.limiter.global_factor == 0:
+                    if self._stopped:
+                        raise asyncio.CancelledError()
+                    if self._clock() >= deadline:
+                        return self._queue_drop(parsed, payload.get('path_len'), 'queue-expired', pages_sent=sent_count)
+                    await asyncio.sleep(min(self.queue_tick_s, max(0.0, deadline-self._clock())))
+                if self._clock() >= deadline:
+                    return self._queue_drop(parsed, payload.get('path_len'), 'queue-expired', pages_sent=sent_count)
+                state.reservation = burst.reserve_next()
+                if not state.reservation.allowed:
+                    return self._queue_drop(parsed, payload.get('path_len'), state.reservation.reason, pages_sent=sent_count)
             if batch and (signature() != initial_signature or worker.cursors.get(parsed.sender) != expected_cursor):
                 return self._record(parsed, payload.get('path_len'), Decision.ANSWERED_TRAFFIC_CHANNEL
                                     if sent_count else Decision.DROP_QUEUE_EXPIRED,
@@ -1202,7 +1209,8 @@ class BotService:
                         raise PostExpired()
                 # Recheck after any radio pause, immediately before the attempt.
                 state.before_send = validate_report
-            await self._hold_for_quiet_channel(received_at)
+            if page == 0:
+                await self._hold_for_quiet_channel(received_at)
             try:
                 sent = await self._send(reply, mention_sender=parsed.sender)
             except PostExpired:
@@ -1217,6 +1225,7 @@ class BotService:
             if not sent:
                 return self._record(parsed, payload.get('path_len'), Decision.DROP_SEND_FAILED,
                                     pages_sent=sent_count, reply=reply)
+            last_send_at = self._clock()
             sent_count += 1
             self.stats.replies_sent += 1
         return self._record(parsed, payload.get('path_len'), Decision.ANSWERED_TRAFFIC_CHANNEL,

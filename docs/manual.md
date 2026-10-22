@@ -327,7 +327,10 @@ at least 48 hours earlier, and handles material changes and explicit cancellatio
 A notice disappearing never proves reopening. Minor city restrictions remain
 available on request. In #traffic, `/reports` automatically sends up to five
 numbered reports, one per message. If there are more, `/cont` requests the next
-group of five; `/reports` starts over. Each message follows the shared radio limits. `/help` explains this flow,
+group of five; `/reports` starts over. Messages within a requested group are spaced two seconds apart after the
+first. The whole batch uses one normal request allowance, which refills from the
+first send; follow-up reports do not add a cooldown.
+Congestion still pauses sending; automatic announcements keep their normal limits. `/help` explains this flow,
 `/examples` gives travel-time requests, and `/commands` explains the other
 commands. `/about` shows the traffic version,
 sources and computer/radio arrangement, and `/source` gives the repository link.

@@ -107,3 +107,75 @@ def test_snapshot_reports_state_for_the_ui(clock):
     assert snap["global_tokens"] == 0.0
     assert snap["global_capacity"] == 1
     assert snap["senders"] == {"alice": 0.0}
+
+
+@pytest.mark.parametrize('count', [0, 6, True, 1.5])
+def test_report_burst_is_bounded(clock, count):
+    limiter = RateLimiter(4, 1, 4, 1, clock=clock)
+    first = limiter.reserve('Alice')
+    with pytest.raises(ValueError):
+        limiter.report_burst(first, count)
+    first.refund()
+
+
+def test_report_burst_requires_normal_admission_and_cannot_be_reused(clock):
+    limiter = RateLimiter(4, 1, 4, 1, clock=clock)
+    first = limiter.reserve('Alice')
+    burst = limiter.report_burst(first, 5)
+    assert not burst.reserve_next().allowed
+    with pytest.raises(ValueError):
+        limiter.report_burst(first, 5)
+    with pytest.raises(ValueError):
+        limiter.report_burst(limiter.reserve('Bob'), 5)
+    first.commit()
+    for _ in range(4):
+        clock.advance(2)
+        reservation = burst.reserve_next()
+        assert reservation.allowed
+        reservation.commit()
+    assert not burst.reserve_next().allowed
+    assert limiter.snapshot()['global_tokens'] == pytest.approx(0.53, abs=0.01)
+    assert not limiter.reserve('Bob').allowed
+    clock.advance(6)
+    assert not limiter.reserve('Alice').allowed
+    clock.advance(2)
+    assert limiter.reserve('Alice').allowed
+
+
+def test_report_burst_refunds_unsent_message_and_preserves_congestion_pause(clock):
+    limiter = RateLimiter(4, 1, 4, 1, clock=clock)
+    first = limiter.reserve('Alice')
+    burst = limiter.report_burst(first, 5)
+    first.commit()
+    limiter.set_global_factor(0)
+    clock.advance(20)
+    assert not burst.reserve_next().allowed
+    assert burst.remaining == 4
+    limiter.set_global_factor(1)
+    unsent = burst.reserve_next()
+    assert limiter.snapshot()['global_tokens'] == 0
+    unsent.refund()
+    assert limiter.snapshot()['global_tokens'] == 0
+    assert not limiter.reserve('Bob').allowed
+
+
+def test_batch_allowance_refills_more_slowly_under_congestion(clock):
+    limiter = RateLimiter(4, 1, 4, 1, clock=clock)
+    first = limiter.reserve('Alice')
+    burst = limiter.report_burst(first, 2)
+    first.commit()
+    burst.reserve_next().commit()
+    limiter.set_global_factor(0.5)
+    clock.advance(29)
+    assert not limiter.reserve('Bob').allowed
+    clock.advance(2)
+    assert limiter.reserve('Bob').allowed
+
+
+def test_refunded_first_message_does_not_authorize_followups(clock):
+    limiter = RateLimiter(4, 1, 4, 1, clock=clock)
+    first = limiter.reserve('Alice')
+    burst = limiter.report_burst(first, 5)
+    first.refund()
+    assert not burst.reserve_next().allowed
+    assert limiter.snapshot()['global_tokens'] == 1

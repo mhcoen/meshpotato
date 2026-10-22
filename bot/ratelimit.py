@@ -62,6 +62,8 @@ class Reservation:
     allowed: bool
     reason: str
     buckets: tuple[TokenBucket, ...] = ()
+    report_burst_started: bool = False
+    committed: bool = False
 
     def commit(self) -> None:
         # Start the next refill interval at transmission, not model admission.
@@ -70,12 +72,34 @@ class Reservation:
             bucket._refill()
             bucket._tokens = min(bucket.capacity - 1, bucket._tokens)
         self.buckets = ()
+        self.committed = True
 
     def refund(self) -> None:
         for bucket in self.buckets:
             bucket._refill()
             bucket._tokens = min(bucket.capacity, bucket._tokens + 1)
         self.buckets = ()
+
+
+class ReportBurst:
+    """At most four follow-up reservations after one normally admitted message.
+
+    The entire requested batch uses the first message's allowance. Follow-ups
+    still obey congestion pauses, but do not accumulate a per-message cooldown.
+    """
+
+    def __init__(self, limiter, first: Reservation, count: int):
+        self.limiter = limiter
+        self.first = first
+        self.remaining = count - 1
+
+    def reserve_next(self) -> Reservation:
+        if not self.first.committed or self.remaining <= 0:
+            return Reservation(False, 'burst-exhausted')
+        if self.limiter.global_factor == 0:
+            return Reservation(False, 'global')
+        self.remaining -= 1
+        return Reservation(True, '')
 
 
 class RateLimiter:
@@ -125,6 +149,14 @@ class RateLimiter:
         decision = self.allow(sender)
         buckets = (self._global, self._senders[sender]) if decision.allowed else ()
         return Reservation(decision.allowed, decision.reason, buckets)
+
+    def report_burst(self, first: Reservation, count: int) -> ReportBurst:
+        """Extend a fresh normal reservation to a bounded requested-report burst."""
+        if (type(count) is not int or not 1 <= count <= 5 or not first.allowed
+                or first.report_burst_started or len(first.buckets) != 2 or first.buckets[0] is not self._global):
+            raise ValueError('report burst requires a fresh reservation and 1 to 5 messages')
+        first.report_burst_started = True
+        return ReportBurst(self, first, count)
 
     @property
     def global_factor(self) -> float:

@@ -70,8 +70,8 @@ sources refresh independently. No radio channel is created or renamed by this co
 ## Asking for reports
 
 Commands start with `/` or `!`; for example, `/reports` and `!reports` do the
-same thing. `/reports` and `/cont` send at most five messages per request, with a separate
-radio allowance for every message. Other commands send one reply.
+same thing. `/reports` and `/cont` send at most five messages per request, two seconds apart
+after the first message, sharing one normal request allowance. Other commands send one reply.
 
 | Send | Result |
 | --- | --- |
@@ -121,9 +121,17 @@ The final report says "End of reports." `/reports` starts again. `/details`
 gives the source for the last report viewed. A report too long to fit still
 gets a numbered message pointing to `/details`.
 
-Every message passes the output checks and reserves its own radio allowance.
-Other queued requests can run between reports. Each message has its own bounded
-queue wait. A send failure stops the batch without retrying that message. A changed
+The first message waits for normal admission and the initial reply delay.
+Follow-up messages in that batch wait two seconds after the preceding send
+finishes, without repeating the initial delay. Every message passes the output
+checks. The entire batch uses one global and per-sender allowance, which refills
+from the first send; follow-ups do not add a cooldown. At four requests per minute
+and a one-request burst allowance, five reports take about eight seconds after
+the first send, and another request becomes eligible about 15 seconds after that
+first send (roughly seven seconds after the batch). Congestion can extend these
+times: a radio pause stops sending and slows or stops allowance recovery.
+Automatic announcements retain normal admission. A batch keeps the radio queue
+until it finishes and is bounded by the configured request deadline. A send failure stops the batch without retrying that message. A changed
 or stale source list also stops the batch; `/reports` starts with fresh data.
 
 Each sender has their own list position. A changed report list starts navigation

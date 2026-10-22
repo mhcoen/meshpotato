@@ -714,20 +714,38 @@ def batch_reports(count):
         for i in range(count)])
 
 
+async def say_batch(h, text):
+    """Advance the fake clock only while a report batch waits between sends."""
+    from tests.test_queue import until
+    task = asyncio.create_task(h.say(text))
+    previous = len(h.sent)
+    try:
+        while not task.done():
+            await until(lambda: task.done() or len(h.sent) > previous)
+            previous = len(h.sent)
+            await asyncio.sleep(0.005)
+            if not task.done():
+                h.clock.advance(2)
+        return await task
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
 @pytest.mark.parametrize('prefix', ['/', '!'])
 async def test_reports_automatically_sends_first_five_then_remaining_reports(traffic, prefix):
     h, worker, _ = traffic
     worker.api.data = batch_reports(7)
     await worker.refresh()
-    assert await h.say('Alice: '+prefix+'reports') == Decision.ANSWERED_TRAFFIC_CHANNEL
+    assert await say_batch(h, 'Alice: '+prefix+'reports') == Decision.ANSWERED_TRAFFIC_CHANNEL
     assert len(h.sent) == 5
     for i, (_, text) in enumerate(h.sent, 1):
         assert f'{i} of 7.' in text
         assert ('/cont' in text) == (i == 5)
         assert len((h.cfg.bot_name+': '+text).encode()) <= 160
     assert h.inbound_records()[-1]['pages_sent'] == 5
-    assert h.limiter.snapshot()['global_tokens'] == 15
-    assert await h.say('Alice: '+prefix+'cont') == Decision.ANSWERED_TRAFFIC_CHANNEL
+    assert h.limiter.snapshot()['global_tokens'] == pytest.approx(19.53, abs=0.01)
+    assert await say_batch(h, 'Alice: '+prefix+'cont') == Decision.ANSWERED_TRAFFIC_CHANNEL
     assert len(h.sent) == 7
     assert '6 of 7.' in h.sent[5][1] and '7 of 7.' in h.sent[6][1]
     assert h.sent[-1][1].endswith('End of reports.')
@@ -747,21 +765,23 @@ async def test_reports_stops_after_ambiguous_second_send_failure(traffic, monkey
             raise RuntimeError('reply may already have reached the radio')
         return await original(channel, text)
     monkeypatch.setattr(h.mc.commands, 'send_chan_msg', send)
-    assert await h.say('Alice: /reports') == Decision.DROP_SEND_FAILED
+    assert await say_batch(h, 'Alice: /reports') == Decision.DROP_SEND_FAILED
     assert len(attempts) == 2 and len(h.sent) == 1
     assert h.inbound_records()[-1]['pages_sent'] == 1
-    assert h.limiter.snapshot()['global_tokens'] == 18
+    assert h.limiter.snapshot()['global_tokens'] == pytest.approx(19.13, abs=0.01)
 
 
 async def test_reports_stops_when_source_expires_while_waiting_to_send(traffic, monkeypatch):
     h, worker, clock = traffic
     worker.api.data = batch_reports(4)
     await worker.refresh()
-    async def hold(_):
+    original = h.service._send
+    async def send(*args, **kwargs):
         if h.sent:
             clock.advance(601)
-    monkeypatch.setattr(h.service, '_hold_for_quiet_channel', hold)
-    assert await h.say('Alice: /reports') == Decision.ANSWERED_TRAFFIC_CHANNEL
+        return await original(*args, **kwargs)
+    monkeypatch.setattr(h.service, '_send', send)
+    assert await say_batch(h, 'Alice: /reports') == Decision.ANSWERED_TRAFFIC_CHANNEL
     assert len(h.sent) == 1
     assert h.inbound_records()[-1]['reason'] == 'traffic-reports-changed'
     assert h.inbound_records()[-1]['pages_sent'] == 1
@@ -776,13 +796,13 @@ async def test_reports_checks_each_message_against_output_gate(traffic):
         def check(self, text):
             return Verdict('2 of 4.' in text, 1.0, (), text)
     h.service.gate = Gate()
-    assert await h.say('Alice: /reports') == Decision.DROP_INJECTION
+    assert await say_batch(h, 'Alice: /reports') == Decision.DROP_INJECTION
     assert len(h.sent) == 1
     assert h.inbound_records()[-1]['pages_sent'] == 1
-    assert h.limiter.snapshot()['global_tokens'] == 19
+    assert h.limiter.snapshot()['global_tokens'] == pytest.approx(19.13, abs=0.01)
 
 
-async def test_report_batch_reserves_tokens_for_each_message(traffic, monkeypatch):
+async def test_report_batch_spaces_messages_two_seconds_and_uses_one_allowance(traffic, monkeypatch):
     from tests.test_queue import until
     h, worker, clock = traffic
     h.service.cfg = replace(h.cfg, queue_max_pending=10)
@@ -800,48 +820,91 @@ async def test_report_batch_reserves_tokens_for_each_message(traffic, monkeypatc
     task = asyncio.create_task(h.say('Alice: /reports'))
     try:
         for count in range(1, 5):
-            await until(lambda: len(h.sent) == count and h.service.stats.queue_depth == 1)
-            clock.advance(60/h.cfg.global_rate_per_min)
+            await until(lambda: len(h.sent) == count)
+            clock.advance(2)
         assert await asyncio.wait_for(task, 1) == Decision.ANSWERED_TRAFFIC_CHANNEL
         assert len(h.sent) == 5
-        assert all(b-a >= 60/h.cfg.global_rate_per_min for a,b in zip(times,times[1:]))
-        assert h.limiter.snapshot()['global_tokens'] == 0
+        assert [b-a for a,b in zip(times,times[1:])] == [2]*4
+        assert h.limiter.snapshot()['global_tokens'] == pytest.approx(0.53, abs=0.01)
+        assert not h.limiter.reserve('Another sender').allowed
+        clock.advance(6)
+        assert not h.limiter.reserve('Another sender').allowed
+        clock.advance(2)
+        reservation = h.limiter.reserve('Another sender')
+        assert reservation.allowed
+        reservation.refund()
     finally:
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
 
 
-async def test_report_batch_yields_to_another_queued_request(traffic, monkeypatch):
+async def test_report_batch_holds_other_requests_until_it_finishes(traffic, monkeypatch):
     from tests.test_queue import until
-    h, worker, _ = traffic
+    h, worker, clock = traffic
     h.service.cfg = replace(h.cfg, queue_max_pending=10)
     h.service.queue_tick_s = 0.001
     worker.api.data = batch_reports(3)
     await worker.refresh()
-    first_sent, release = asyncio.Event(), asyncio.Event()
-    original = h.mc.commands.send_chan_msg
-    async def send(channel, text):
-        result = await original(channel, text)
-        if len(h.sent) == 1:
-            first_sent.set()
-            await release.wait()
-        return result
-    monkeypatch.setattr(h.mc.commands, 'send_chan_msg', send)
     batch = asyncio.create_task(h.say('Alice: /reports'))
     other = None
     try:
-        await asyncio.wait_for(first_sent.wait(), 1)
+        await until(lambda: len(h.sent) == 1)
         other = asyncio.create_task(h.say('Bob: /about'))
         await until(lambda: h.service.stats.queue_depth == 1)
-        release.set()
+        clock.advance(2)
+        await until(lambda: len(h.sent) == 2)
+        clock.advance(2)
         await asyncio.wait_for(asyncio.gather(batch, other), 1)
         assert len(h.sent) == 4
-        assert '1 of 3.' in h.sent[0][1]
-        assert '@[Bob]' in h.sent[1][1] and 'Traffic v2.0.3' in h.sent[1][1]
-        assert '2 of 3.' in h.sent[2][1] and '3 of 3.' in h.sent[3][1]
+        assert all(f'{i} of 3.' in h.sent[i-1][1] for i in range(1,4))
+        assert '@[Bob]' in h.sent[3][1]
     finally:
-        release.set()
         for task in (batch, other):
             if task is not None:
                 task.cancel()
         await asyncio.gather(*(task for task in (batch, other) if task is not None), return_exceptions=True)
+
+
+async def test_report_burst_pauses_for_congestion_and_resumes_without_replay(traffic):
+    from tests.test_queue import until
+    h, worker, clock = traffic
+    h.service.queue_tick_s = 0.001
+    worker.api.data = batch_reports(3)
+    await worker.refresh()
+    task = asyncio.create_task(h.say('Alice: /reports'))
+    try:
+        await until(lambda: len(h.sent) == 1)
+        h.limiter.set_global_factor(0)
+        clock.advance(10)
+        await asyncio.sleep(0.01)
+        assert len(h.sent) == 1
+        h.limiter.set_global_factor(1)
+        await until(lambda: len(h.sent) == 2)
+        clock.advance(2)
+        assert await asyncio.wait_for(task, 1) == Decision.ANSWERED_TRAFFIC_CHANNEL
+        assert len(h.sent) == 3
+        assert all(f'{i} of 3.' in text for i, (_, text) in enumerate(h.sent,1))
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+async def test_report_burst_pause_expires_without_spending_followup_tokens(traffic):
+    from tests.test_queue import until
+    h, worker, clock = traffic
+    h.service.cfg = replace(h.cfg, queue_wait_s=10)
+    h.service.queue_tick_s = 0.001
+    worker.api.data = batch_reports(3)
+    await worker.refresh()
+    task = asyncio.create_task(h.say('Alice: /reports'))
+    try:
+        await until(lambda: len(h.sent) == 1)
+        h.limiter.set_global_factor(0)
+        clock.advance(11)
+        assert await asyncio.wait_for(task,1) == Decision.DROP_QUEUE_EXPIRED
+        assert len(h.sent) == 1
+        assert h.limiter.snapshot()['global_tokens'] == 19
+        assert h.inbound_records()[-1]['pages_sent'] == 1
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
