@@ -3,7 +3,7 @@
 CHESS_NAME = 'Mesh Potato Chess'
 CHESS_VERSION = '1.0'
 TRAFFIC_NAME = 'Mesh Potato Traffic'
-TRAFFIC_VERSION = '2.0.3'
+TRAFFIC_VERSION = '2.0.4'
 
 
 def identity(kind):

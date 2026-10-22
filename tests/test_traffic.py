@@ -83,7 +83,7 @@ async def test_ready_report_and_original_source_age():
     assert await c.refresh()
     assert c.answer('', 130) == 'Beltline: Eastbound 22 min, 5 min delay (2 min ago). Westbound 17 min, no delay (2 min ago). Source: 511.'
     assert 'Eastbound 22 min, 5 min delay' in c.answer('EB', 130)
-    assert 'Westbound 17 min, no delay' in c.answer('WB', 130)
+    assert c.answer('WB', 130) == 'Beltline: Westbound: No delays reported by 511.'
     assert c.answer('', 50) == "I can get live traffic, but can't right now."
     clock.advance(479)
     assert '(9 min ago)' in c.answer('', 130)
@@ -332,9 +332,7 @@ async def test_historical_source_times_survive_new_fetch_and_fit_actual_sender()
     await h.say("Michael M7: What's the traffic like on the beltline?")
     reply = h.sent[-1][1]
     assert reply.startswith('@[Michael M7] Beltline: ')
-    assert 'EB current unavailable; last 17 min (yesterday 11:06 PM)' in reply
-    assert 'WB current unavailable; last 17 min (4:13 AM)' in reply
-    assert 'no delay' not in reply
+    assert reply == '@[Michael M7] Beltline: No delays reported by 511.'
     assert len(('Mesh Potato: '+reply).encode()) <= 160
     assert not h.backend.calls
     assert '4:24' not in reply  # fetching did not refresh the observation
@@ -349,7 +347,7 @@ async def test_single_direction_last_update_and_missing_direction():
         return payload
     c.fetch = fetch
     assert await c.refresh()
-    assert c.answer('WB',130) == 'Beltline: Westbound current unavailable; last 17 min (4:13 AM). Source: 511.'
+    assert c.answer('WB',130) == 'Beltline: Westbound: No delays reported by 511.'
     assert 'Eastbound unavailable.' in c.answer('',130)
     assert c.answer('EB',130) == TRAFFIC_UNAVAILABLE
 
@@ -412,9 +410,9 @@ async def test_interstate_questions_use_cached_measurements_and_actual_timestamp
     await h.say('Michael: '+question)
     answer = h.sent[-1][1]
     assert 'I-90 Beltline to I-94:' in answer
-    assert 'NB current unavailable; last 4 min (7:00 AM)' in answer
-    assert 'SB current unavailable; last 8 min (7:00 AM)' in answer
-    assert 'no delay' not in answer and '5 min delay' not in answer
+    assert 'Northbound: no delays reported by 511' in answer
+    assert 'Southbound current unavailable; last 8 min (7:00 AM)' in answer
+    assert '5 min delay' not in answer
     assert len(('Mesh Potato: '+answer).encode()) <= 160
     assert not h.backend.calls
     assert any(r.get('event') == 'traffic_lookup' and r['outcome'] == 'last-known' for r in h.records)
@@ -472,6 +470,8 @@ async def test_one_feed_failure_preserves_other_feed_and_old_interstate(monkeypa
     assert await c.refresh()
     assert c.reports['I90:NB'] == old['I90:NB']
     assert 'Eastbound 22 min' in c.answer('', 136)
+    assert c.answer('I90:NB', 136) == 'I-90 Beltline to I-94: Northbound: No delays reported by 511.'
+    c.clock.advance(600)
     assert '(7:00 AM)' in c.answer('I90:NB', 136)
 
 
@@ -508,3 +508,31 @@ async def test_forget_during_clarification_does_not_restore_traffic_context(monk
     await asyncio.wait_for(question, 1)
     assert not h.service._traffic_clarifications
     assert not h.service.memory.rounds_for('Michael')
+
+
+@pytest.mark.parametrize('source_age', [0, 660, 86400])
+@pytest.mark.parametrize('interstate', [False, True])
+async def test_zero_delay_report_requires_recent_fetch_not_recent_source_timestamp(source_age, interstate):
+    clock = FakeClock(NOW)
+    c = cache(clock)
+    payload = (interstate_table if interstate else table)(NOW-source_age)
+    for row in payload['data']:
+        row.update(travelTime=row['travelTimeNominal'], delay='0')
+    async def fetch():
+        return payload
+    c.fetch = fetch
+    assert await c.refresh()
+    direction = 'I90' if interstate else ''
+    label = 'I-90 Beltline to I-94' if interstate else 'Beltline'
+    for include_source in (True, False):
+        assert c.answer(direction, 130, include_source=include_source) == f'{label}: No delays reported by 511.'
+    assert 'No delays' not in c.answer(direction, 25)
+    async def broken():
+        raise RuntimeError('fake outage')
+    c.fetch = broken
+    clock.advance(600)
+    assert not await c.refresh()
+    assert 'delays reported' not in c.answer(direction, 200)
+    assert 'current unavailable' in c.answer(direction, 200)
+    c.reports.clear()
+    assert c.answer(direction, 130) == TRAFFIC_UNAVAILABLE

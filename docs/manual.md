@@ -351,7 +351,7 @@ and I-39/90, or I-90 between the Beltline and I-94, without a foreground search 
 model call. In #ai, these requests redirect when #traffic
 is configured. The examples and general web behavior below describe traffic
 lookup in #ai when the dedicated channel is disabled. #traffic uses the same corridor
-cache without source labels and does not use general web search for other roads.
+cache without the separate source footer and does not use general web search for other roads.
 `/web Beltline traffic?` also uses the cache in #ai in that standalone setup. Example with
 **illustrative measurements**:
 
@@ -383,14 +383,20 @@ Drive northbound` works directly. If the lookup cannot verify conditions, it say
 This distinguishes an unverified road from a temporary failure of a supported
 cached report. A broad "How's traffic?" asks which road and direction first.
 
-Travel times and additional delays are in minutes. Each direction shows its
-own source update age or time; clock times are Central time. Only source measurements and successful
-fetches under ten minutes old are described as current. Older reports remain
-available with their original source times in parentheses, for example:
+Travel times and additional delays are in minutes. If both directions explicitly
+report zero delay in data fetched within ten minutes, the reply is:
 
-> Beltline: Eastbound 17 min, no delay (yesterday 11:06 PM). Westbound 17 min, no delay (4:13 AM). Source: 511.
+> Beltline: No delays reported by 511.
 
-Replies say "yesterday" or give a date for older measurements.
+This also applies when the source timestamps are older: it attributes the report
+to 511 without claiming a new measurement. A request for one direction names that
+direction. In mixed reports, each direction is handled independently. Missing or
+invalid data never means no delays.
+
+Other travel times show their source update age or time (Central time). Only
+source measurements and successful fetches under ten minutes old are described
+as current. Older reports say "current unavailable" and retain their source
+times, with "yesterday" or a date for older measurements.
 A failed refresh preserves the last known measurements without changing their
 times. If only one direction is available, the reply identifies the missing
 direction. The unavailable notice is reserved for missing or invalid data, or
@@ -894,7 +900,7 @@ Mesh Potato v2.0.6: Ask about weather, sports, traffic, radio, or a poem. Try /h
 ```
 
 The #chess and #traffic services introduce themselves as **Mesh Potato Chess v1.0** and
-**Mesh Potato Traffic v2.0.3**. Their versions advance independently of each other
+**Mesh Potato Traffic v2.0.4**. Their versions advance independently of each other
 and the AI package version. Their `about` and `version` replies show these versions.
 
 With the default `announce_once = true`, each channel records its welcome attempt

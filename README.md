@@ -75,8 +75,9 @@ run. A live instance answers on `#ai` in southern Wisconsin, centered on Madison
   for matching rules, supported updates and freshness limits.
   Long 511 alerts keep the alert type and an excerpt of the actual details, with
   `511wi.gov` for the rest. Equivalent reports with different source IDs are
-  announced once. Old travel times are marked "current unavailable" and retain
-  their observation timestamps.
+  announced once. A recently fetched report of zero delay says "No delays reported by 511,"
+  even if its source timestamp is older. Missing data never means no delays. Other
+  old travel times are marked "current unavailable" with their source timestamps.
 - **Has personalities.** Nice by default; `/funny`, `/snarky`, `/marvin`,
   `/pirate`, `/haiku` and `/serious` on request, reverting after two hours.
   A silly fortune arrives a little after six every morning.

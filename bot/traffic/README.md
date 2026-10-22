@@ -212,8 +212,11 @@ once the last successful snapshot is ten minutes old, and each report's end
 time is checked again before transmission. City polling and freshness are separate.
 
 The existing travel time cache separately checks 511's public tables every five
-minutes. It preserves original observation times and marks older reports with
-their source times. Ordinary travel time changes never cause announcements.
+minutes. When a valid report fetched within ten minutes explicitly reports zero
+delay, the reply says "No delays reported by 511," even if its source timestamp
+is older. This describes what 511 reports, not when it last measured conditions.
+Missing or invalid data never means no delays. Other older reports retain their
+source times and are marked "current unavailable". Ordinary travel time changes never cause announcements.
 
 All channels share the same radio allowance and congestion controls. Traffic
 announcements yield to user requests and attempt at most one post per five
@@ -349,7 +352,7 @@ history is never silently evicted to make room. Corrupt history prevents startup
 a capacity error rejects the affected refresh or update and logs an error.
 Existing receipts are preserved for operator recovery.
 
-Mesh Potato Traffic is version **2.0.3**, independent of the services in #chess and #ai. Use `/about` or `/version` to see it. Its first launch welcome explains
+Mesh Potato Traffic is version **2.0.4**, independent of the services in #chess and #ai. Use `/about` or `/version` to see it. Its first launch welcome explains
 alerts and travel times; a saved receipt keeps routine restarts quiet.
 
 The `--no-announce` switch suppresses all channel welcomes. It does not

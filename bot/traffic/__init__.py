@@ -276,11 +276,14 @@ class TrafficCache:
                 if (r := self.reports.get(d)) is not None and now >= r.observed_at
                 and now >= r.fetched_at and mono >= r.fetched_mono}
 
-    def _fresh(self, report: Report) -> bool:
+    def _recently_fetched(self, report: Report) -> bool:
         now, mono = self.wall_clock(), self.clock()
-        return (0 <= now - report.observed_at < MAX_AGE_S
-                and 0 <= now - report.fetched_at < MAX_AGE_S
+        return (0 <= now - report.fetched_at < MAX_AGE_S
                 and 0 <= mono - report.fetched_mono < MAX_AGE_S)
+
+    def _fresh(self, report: Report) -> bool:
+        return (0 <= self.wall_clock() - report.observed_at < MAX_AGE_S
+                and self._recently_fetched(report))
 
     def is_current(self, direction: str) -> bool:
         reports = self._usable_reports(direction)
@@ -292,6 +295,15 @@ class TrafficCache:
         reports = self._usable_reports(direction)
         if not reports:
             return unavailable
+        label = 'I-90 Beltline to I-94: ' if direction.startswith('I90') else 'Beltline: '
+        # Attribute an explicit zero to the recently fetched feed. This does not
+        # claim that an old source timestamp represents a new measurement.
+        if (len(reports) == len(_directions(direction))
+                and all(r.delay_minutes == 0 and self._recently_fetched(r) for r in reports.values())):
+            name = {'EB': 'Eastbound: ', 'WB': 'Westbound: ',
+                    'I90:NB': 'Northbound: ', 'I90:SB': 'Southbound: '}.get(direction, '')
+            answer = label + name + 'No delays reported by 511.'
+            return answer if len(answer) <= available else unavailable
         now = self.wall_clock()
         today = datetime.fromtimestamp(now, CENTRAL).date()
         parts = []
@@ -300,6 +312,10 @@ class TrafficCache:
             report = reports.get(d)
             if report is None:
                 parts.append(f'{name} unavailable')
+                continue
+            if (report.delay_minutes == 0 and self._recently_fetched(report)
+                    and not self._fresh(report)):
+                parts.append(f'{name}: no delays reported by 511')
                 continue
             if self._fresh(report):
                 stamp = f'{int((now-report.observed_at)//60)} min ago'
@@ -317,7 +333,6 @@ class TrafficCache:
                 parts.append(f'{name} current unavailable; last {_number(report.travel_minutes)} min ({stamp})')
             else:
                 parts.append(f'{name} {_number(report.travel_minutes)} min, {delay} ({stamp})')
-        label = 'I-90 Beltline to I-94: ' if direction.startswith('I90') else 'Beltline: '
         answer = label + '. '.join(parts) + ('. Source: 511.' if include_source else '.')
         if len(answer) > available and any(not self._fresh(r) for r in reports.values()):
             for full, short in (('Eastbound', 'EB'), ('Westbound', 'WB'), ('Northbound', 'NB'), ('Southbound', 'SB')):

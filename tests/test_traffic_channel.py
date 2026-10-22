@@ -669,7 +669,7 @@ async def test_reports_prefixes_and_about_describe_the_traffic_service(traffic):
     for command in ('/reports', '!reports'):
         assert worker.answer(command, 135, 'Alice') == first
     about = worker.answer('/about', 135)
-    assert 'Mesh Potato Traffic v2.0.3' in about
+    assert 'Mesh Potato Traffic v2.0.4' in about
     assert 'Sources: Wisconsin 511' in about
     assert 'Computer + MeshCore radio.' in about
     assert 'Model:' not in about
@@ -701,7 +701,7 @@ async def test_help_explains_reports_and_examples_are_executable(traffic):
     assert '/Beltline eastbound' in examples and '/I90 northbound' in examples
     for prompt in ("How's the Beltline?", '/Beltline', '/Beltline eastbound', '/I90 northbound'):
         answer = worker.answer(prompt, 135)
-        assert 'min' in answer
+        assert 'min' in answer or 'No delays reported by 511.' in answer
         assert not answer.startswith('Try ')
     commands = worker.answer('/commands', 135)
     assert '/coverage: roads covered' in commands
