@@ -1573,6 +1573,11 @@ class BotService:
                 others.append(entry.text.partition("] ")[2] or entry.text)
             else:
                 others.append(entry.text)
+        greeting = (social_acknowledgment(prompt, self.cfg.bot_name).startswith('Hello')
+                    or re.fullmatch(r'(?:hi|hello|hey|good morning|good afternoon|good evening)[.!? ]*', prompt.strip(), re.I))
+        if (same and greeting and not looks_like_question(prompt, self.cfg.bot_name)
+                and re.search(r"\b(?:nice|pleased|glad|good|great|lovely|happy) to meet you\b(?!\s+again\b)", shaped, re.I)):
+            return Problem('false-first-meeting', shaped)
         return reply_problem(shaped, prompt, same, others, radio_prompt=radio_prompt)
 
     # ------------------------------------------------------------------ facts
@@ -1861,7 +1866,7 @@ class BotService:
     async def _handle_command(self, parsed, path_len, command: str, received_at: float, arguments: str = "") -> Decision:
         cfg = self.cfg
         if command == 'about':
-            readme_url = 'https://github.com/mhcoen/meshpotato/blob/main/README.md'
+            readme_url = 'https://github.com/mhcoen/meshpotato#readme'
             text = ("https://github.com/mhcoen/meshpotato" if arguments.lower() in {'source', 'code', 'github'}
                     else f'v{__version__}. Model: {cfg.model}. Runs on a computer linked to a MeshCore radio.')
             room = reply_body_room(parsed.sender, cfg.reply_max_chars, self._reply_max_bytes)

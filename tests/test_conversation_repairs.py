@@ -344,3 +344,37 @@ async def test_multiple_empty_preambles_still_require_actual_content(harness, pr
 def test_preamble_plus_actual_content_is_not_rejected(body):
     from bot.quality import incomplete_request
     assert not incomplete_request(body, 'Write a poem, joke or translation')
+
+
+@pytest.mark.parametrize('greeting', ['Hi little bot', 'Hello Mesh Potato', 'Hi'])
+async def test_returning_sender_first_meeting_greeting_is_retried(harness, greeting):
+    h = harness(bot_name='Mesh Potato', reply_max_chars=147, backend=FakeBackend(replies=[
+        'Hello there, nice to meet you!', 'Good to hear from you again.']))
+    h.service.memory.record('Michael', 'I spilled espresso on my shirt.', 'Blot it with a clean cloth.')
+    assert await h.say('Michael: '+greeting) == Decision.ANSWERED
+    assert h.sent[-1][1] == '@[Michael] Good to hear from you again.'
+    assert len(h.backend.calls) == 2
+    assert 'I spilled espresso on my shirt.' in h.backend.calls[0][1]['content']
+    assert 'not as a first meeting' in h.backend.calls[0][0]['content']
+    assert any(r['event']=='reply_retry' and r['reason']=='false-first-meeting' for r in h.records)
+    assert h.service.memory.rounds_for('Michael')[-1].reply == 'Good to hear from you again.'
+
+
+async def test_persistent_first_meeting_draft_gets_neutral_greeting(harness):
+    h = harness(bot_name='Mesh Potato', reply_max_chars=147, backend=FakeBackend('Hello there, nice to meet you!'))
+    h.service.memory.record('Michael', 'Hello yesterday.', 'Good morning.')
+    assert await h.say('Michael: Hi little bot') == Decision.ANSWERED_RECOVERY
+    assert h.sent[-1][1] == '@[Michael] Hello, good to hear from you.'
+    assert len(h.service.memory.rounds_for('Michael')) == 1
+
+
+@pytest.mark.parametrize('scenario', ['different-name', 'forgotten', 'translation'])
+async def test_first_meeting_check_does_not_merge_names_or_block_translation(harness, scenario):
+    h = harness(bot_name='Mesh Potato', reply_max_chars=147, backend=FakeBackend('Nice to meet you.'))
+    h.service.memory.record('Michael M7' if scenario=='different-name' else 'Michael', 'Hello yesterday.', 'Good morning.')
+    if scenario=='forgotten':
+        h.service.memory.forget('Michael')
+    prompt = 'Translate enchanté into English.' if scenario=='translation' else 'Hi little bot'
+    assert await h.say('Michael: '+prompt) == Decision.ANSWERED
+    assert len(h.backend.calls) == 1
+    assert h.sent[-1][1] == '@[Michael] Nice to meet you.'

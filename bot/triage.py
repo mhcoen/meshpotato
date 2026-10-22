@@ -33,7 +33,7 @@ def social_acknowledgment(prompt: str, bot_name: str) -> str:
         return "You're welcome."
     match = re.match(
         rf"^(good\s*night|gnite|g'night|night|gn|good\s*morning|hello|hi|hey|bye|goodbye)"
-        rf"[\s,]+(?:{names})(?=$|[\s,.!?])", prompt.strip(), re.I,
+        rf"[\s,]+(?:lil |little )?(?:{names})(?=$|[\s,.!?])", prompt.strip(), re.I,
     )
     if not match:
         return ""

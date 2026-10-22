@@ -107,7 +107,7 @@ A configured custom command prefix works too. With the default presets:
 | --- | --- |
 | `!help` or `/help` | Shows enabled examples; points traffic questions to #traffic when that channel is configured |
 | `!help topics` or `/help topics` | Lists command help topics and `about` |
-| `about`, `!about` or `/about` | Shows version, configured model and host/radio arrangement, plus the GitHub README link when the complete reply fits |
+| `about`, `!about` or `/about` | Shows version, configured model and host/radio arrangement, plus the short repository `#readme` link when the complete reply fits |
 | `!about source` or `/about source` | Gives the source repository link |
 | `!weather` or `/weather` | Gets the daily weather; `!wx` and `/wx` also work, with an optional location |
 | `!traffic` or `/traffic` | Directs users to #traffic when configured; otherwise uses the traffic lookup in #ai described below |

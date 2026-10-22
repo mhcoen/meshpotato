@@ -195,7 +195,7 @@ async def test_about_readme_link_respects_complete_packet_budget(harness, sender
                 model='qwen3:30b-a3b-instruct-2507-q4_K_M')
     assert await h.say(f'{sender}: /about') is Decision.ANSWERED_HELP
     text = h.sent[-1][1]
-    url = 'https://github.com/mhcoen/meshpotato/blob/main/README.md'
+    url = 'https://github.com/mhcoen/meshpotato#readme'
     assert (url in text) is include
     assert h.cfg.model in text
     assert len(('Mesh Potato: '+text).encode()) <= 160
@@ -207,7 +207,7 @@ async def test_about_entry_points_include_readme_when_it_fits(harness, command):
     h = harness()
     assert await h.say('Alice: '+command) is Decision.ANSWERED_HELP
     assert h.cfg.model in h.sent[-1][1]
-    assert h.sent[-1][1].endswith('https://github.com/mhcoen/meshpotato/blob/main/README.md')
+    assert h.sent[-1][1].endswith('https://github.com/mhcoen/meshpotato#readme')
     assert not h.backend.calls
 
 

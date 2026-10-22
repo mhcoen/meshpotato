@@ -16,7 +16,10 @@ run. A live instance answers on `#ai` in southern Wisconsin, centered on Madison
 
 - **Answers on the air.** Ask "What does spreading factor change?" or "Why is
   the sky blue?" and get one short sentence back as `@[you] answer`. It
-  remembers your recent exchanges, so "explain that more simply" works.
+  remembers your recent exchanges, so "explain that more simply" works. When
+  earlier exchanges exist under the same sender name, greetings preserve that
+  continuity; first-meeting wording is rejected and retried within the usual
+  generation budget. Different sender names keep separate memories.
 - **Knows the mesh it lives on.** It reads its own frequency, bandwidth and
   power from the radio, carries a small sourced LoRa reference, and can explain
   how your message reached it from that packet's hop count, RSSI and SNR.

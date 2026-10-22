@@ -358,6 +358,10 @@ def incomplete_request(body: str, prompt: str) -> bool:
 
 def nudge(problem: Problem) -> str:
     """The extra user turn for the one retry. It never offers PASS: given the exit, the model takes it."""
+    if problem.kind == 'false-first-meeting':
+        return ('You have retained earlier exchanges with this sender. Give a brief, warm greeting '
+                'that continues the conversation, without saying you are meeting for the first time '
+                'or inventing personal details.')
     if problem.kind == 'ignored-context':
         return ('The sender is challenging your preceding answer, which is in their earlier exchanges. '
                 'Recheck that answer against relevant reference facts, correct any error, or acknowledge uncertainty. '
