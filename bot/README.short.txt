@@ -22,7 +22,8 @@ Weather and wx summaries use verified structured weather data: location, current
 conditions and wind, today's high/low, and tomorrow's forecast. Weather icons and
 degree symbols are allowed when the summary fits one radio packet.
 When configured, #traffic handles road reports; #ai redirects there.
-Use /reports, /cont, /details, /about or /help; ! also works. Saved receipts prevent repeats.
+/reports sends up to 5 numbered messages; /cont gets the next 5. Use /help.
+Saved receipts prevent repeat broadcasts.
 With Dane and city notices enabled, Madison closure plans supplement 511 alerts.
 Fresh day-before notices can remind; material changes and explicit cancellations
 update prior announcements. Missing notices never prove reopening.

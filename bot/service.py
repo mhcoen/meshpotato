@@ -1163,15 +1163,64 @@ class BotService:
         if not limit.allowed:
             return self._queue_drop(parsed, payload.get('path_len'), limit.reason)
         available = reply_body_room(parsed.sender, self.cfg.reply_max_chars, self._reply_max_bytes)
-        answer = self.traffic_channel.answer(prompt, available, parsed.sender)
-        reply = compose_reply(parsed.sender, answer, self.cfg.reply_max_chars, max_bytes=self._reply_max_bytes)
-        if reply is None:
-            return self._record(parsed, payload.get('path_len'), Decision.DROP_EMPTY)
-        await self._hold_for_quiet_channel(received_at)
-        sent = await self._send(reply, mention_sender=parsed.sender)
-        if sent:
+        worker = self.traffic_channel
+        command = prompt.lower().strip().rstrip('.?!')
+        batch = command in {'/reports', '!reports', '/cont', '!cont'}
+        signature = lambda: tuple(a.identifier+':'+a.fingerprint for a in worker._reports())
+        initial_signature = signature() if batch else ()
+        expected_cursor = worker.cursors.get(parsed.sender)
+        start = (expected_cursor[1] if command in {'/cont', '!cont'} and expected_cursor
+                 and expected_cursor[0] == initial_signature else 0)
+        count = max(1, min(5, len(initial_signature)-start)) if batch else 1
+        sent_count = 0
+        reply = None
+        state = self._requests[asyncio.current_task()]
+        for page in range(count):
+            if page:
+                # Each message gets its own reservation and delivery deadline.
+                # Release ownership so queued requests can run between reports.
+                state.reservation = None  # The preceding send committed it.
+                self._active_request = None
+                self.stats.reply_active = False
+                received_at = self._clock()
+                limit = await self._wait_for_admission(parsed.sender, received_at)
+                if not limit.allowed:
+                    return self._queue_drop(parsed, payload.get('path_len'), limit.reason, pages_sent=sent_count)
+            if batch and (signature() != initial_signature or worker.cursors.get(parsed.sender) != expected_cursor):
+                return self._record(parsed, payload.get('path_len'), Decision.ANSWERED_TRAFFIC_CHANNEL
+                                    if sent_count else Decision.DROP_QUEUE_EXPIRED,
+                                    reason='traffic-reports-changed', pages_sent=sent_count, reply=reply)
+            answer = worker.answer('/cont' if page else prompt, available, parsed.sender,
+                                   batch_end=page == count-1)
+            expected_cursor = worker.cursors.get(parsed.sender)
+            reply = compose_reply(parsed.sender, answer, self.cfg.reply_max_chars, max_bytes=self._reply_max_bytes)
+            if reply is None:
+                return self._record(parsed, payload.get('path_len'), Decision.DROP_EMPTY, pages_sent=sent_count)
+            if batch:
+                def validate_report():
+                    if signature() != initial_signature or worker.cursors.get(parsed.sender) != expected_cursor:
+                        raise PostExpired()
+                # Recheck after any radio pause, immediately before the attempt.
+                state.before_send = validate_report
+            await self._hold_for_quiet_channel(received_at)
+            try:
+                sent = await self._send(reply, mention_sender=parsed.sender)
+            except PostExpired:
+                return self._record(parsed, payload.get('path_len'), Decision.ANSWERED_TRAFFIC_CHANNEL
+                                    if sent_count else Decision.DROP_QUEUE_EXPIRED,
+                                    reason='traffic-reports-changed', pages_sent=sent_count, reply=reply)
+            except InjectionBlocked as exc:
+                return self._record(parsed, payload.get('path_len'), Decision.DROP_INJECTION,
+                                    point=exc.point, pages_sent=sent_count)
+            except TransmissionPaused:
+                return self._queue_drop(parsed, payload.get('path_len'), 'queue-expired', pages_sent=sent_count)
+            if not sent:
+                return self._record(parsed, payload.get('path_len'), Decision.DROP_SEND_FAILED,
+                                    pages_sent=sent_count, reply=reply)
+            sent_count += 1
             self.stats.replies_sent += 1
-        return self._record(parsed, payload.get('path_len'), Decision.ANSWERED_TRAFFIC_CHANNEL if sent else Decision.DROP_SEND_FAILED, reply=reply)
+        return self._record(parsed, payload.get('path_len'), Decision.ANSWERED_TRAFFIC_CHANNEL,
+                            pages_sent=sent_count, reply=reply)
 
     async def post_traffic_alert(self, text, claim, can_send):
         def eligible():

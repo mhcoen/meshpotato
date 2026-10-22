@@ -70,12 +70,13 @@ sources refresh independently. No radio channel is created or renamed by this co
 ## Asking for reports
 
 Commands start with `/` or `!`; for example, `/reports` and `!reports` do the
-same thing. Each request sends at most one reply so a list cannot flood the mesh.
+same thing. `/reports` and `/cont` send at most five messages per request, with a separate
+radio allowance for every message. Other commands send one reply.
 
 | Send | Result |
 | --- | --- |
-| `/reports` | Start reading current and upcoming reports; includes minor city restrictions |
-| `/cont` | Continue with the next report |
+| `/reports` | Send the first five current or upcoming reports automatically, numbered; includes minor city restrictions |
+| `/cont` | Send the next group of up to five reports |
 | `/details` | Source link for the report just read |
 | `/Beltline` | Cached travel times in both directions |
 | `/I90 northbound` | Travel time between the Beltline and I94 |
@@ -91,7 +92,7 @@ same thing. Each request sends at most one reply so a list cannot flood the mesh
 
 `/help` explains the task rather than listing unexplained command names:
 
-> Read closures and incidents with /reports, then /cont for the next report. /examples shows travel-time requests. /commands has more.
+> /reports sends up to 5 numbered closure and incident reports. /examples shows travel-time requests. /commands explains other commands.
 
 `/examples` gives working travel-time requests:
 
@@ -103,7 +104,7 @@ and `/policy` (automatic posts). Each help response fits one radio message.
 For example, using the real schema of the October 10, 2026 WIS 19 closure:
 
 ```text
-WIS 19 eastbound closed 10/10 6AM to 8PM: WIS 113 to River Rd. Continue: /cont
+1 of 2. WIS 19 eastbound closed 10/10 6AM to 8PM: WIS 113 to River Rd.
 ```
 
 This is an example, not a permanent announcement. Dates and times come from the
@@ -113,11 +114,17 @@ Reports fit the radio packet using shorter complete wording, never cut off mid s
 the road, direction, county and incident type. City reports that cannot fit direct
 the reader to `/details`; their automatic announcements are withheld.
 
-Start with `/reports`. Each report ends with "Continue: /cont" when another
-is available, or "End of reports." for the last one. `/cont` continues;
-`/reports` starts again. There are no numbered report commands. `/details`
-gives the source for the report just viewed. A report too long to fit provides
-a source hint and the same continuation prompt.
+`/reports` sends the first five reports automatically, one numbered message per
+report. There is no need to reply between messages. If there are more than five,
+the fifth message ends with "Next 5: /cont"; `/cont` sends the next group.
+The final report says "End of reports." `/reports` starts again. `/details`
+gives the source for the last report viewed. A report too long to fit still
+gets a numbered message pointing to `/details`.
+
+Every message passes the output checks and reserves its own radio allowance.
+Other queued requests can run between reports. Each message has its own bounded
+queue wait. A send failure stops the batch without retrying that message. A changed
+or stale source list also stops the batch; `/reports` starts with fresh data.
 
 Each sender has their own list position. A changed report list starts navigation
 again at the first report. No matching reports does not mean every road is clear.

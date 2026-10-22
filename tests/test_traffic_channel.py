@@ -265,8 +265,8 @@ async def test_alert_navigation_is_per_sender_and_resets_when_list_changes(traff
     worker.api.data = snapshot([incident(), closure()])
     await worker.refresh()
     first = worker.answer('/reports', 135, 'Alice')
-    assert 'I-90' in first and first.endswith('Continue: /cont')
-    assert '1 of 2' not in first
+    assert 'I-90' in first and first.endswith('Next 5: /cont')
+    assert '1 of 2.' in first
     last = worker.answer('!cont', 135, 'Alice')
     assert 'WIS 19' in last and last.endswith('End of reports.')
     assert worker.answer('/cont', 135, 'Bob') == first
@@ -281,8 +281,7 @@ async def test_short_and_unicode_name_still_get_usable_help(traffic):
     h, worker, _ = traffic
     await worker.refresh()
     assert await h.say('\U0001f31fMichael: /help') == Decision.ANSWERED_TRAFFIC_CHANNEL
-    assert 'Read closures and incidents with /reports' in h.sent[-1][1]
-    assert '/cont for the next report' in h.sent[-1][1]
+    assert '/reports sends up to 5 numbered closure and incident reports.' in h.sent[-1][1]
     assert '/examples' in h.sent[-1][1]
     assert len((h.cfg.bot_name+': '+h.sent[-1][1]).encode()) <= 160
 
@@ -707,3 +706,142 @@ async def test_help_explains_reports_and_examples_are_executable(traffic):
     assert '/policy: automatic posts' in commands
     assert 'Reports: highways in Dane' in worker.answer('/coverage', 135)
     assert 'cancellations' not in worker.answer('/policy', 135)
+
+
+def batch_reports(count):
+    return snapshot([closure(ID=100+i, RoadwayName=f'WI-{19+i}',
+        Description=f'Full closure on WIS {19+i} eastbound from First St to Last St.')
+        for i in range(count)])
+
+
+@pytest.mark.parametrize('prefix', ['/', '!'])
+async def test_reports_automatically_sends_first_five_then_remaining_reports(traffic, prefix):
+    h, worker, _ = traffic
+    worker.api.data = batch_reports(7)
+    await worker.refresh()
+    assert await h.say('Alice: '+prefix+'reports') == Decision.ANSWERED_TRAFFIC_CHANNEL
+    assert len(h.sent) == 5
+    for i, (_, text) in enumerate(h.sent, 1):
+        assert f'{i} of 7.' in text
+        assert ('/cont' in text) == (i == 5)
+        assert len((h.cfg.bot_name+': '+text).encode()) <= 160
+    assert h.inbound_records()[-1]['pages_sent'] == 5
+    assert h.limiter.snapshot()['global_tokens'] == 15
+    assert await h.say('Alice: '+prefix+'cont') == Decision.ANSWERED_TRAFFIC_CHANNEL
+    assert len(h.sent) == 7
+    assert '6 of 7.' in h.sent[5][1] and '7 of 7.' in h.sent[6][1]
+    assert h.sent[-1][1].endswith('End of reports.')
+    assert h.inbound_records()[-1]['pages_sent'] == 2
+    assert not h.backend.calls
+
+
+async def test_reports_stops_after_ambiguous_second_send_failure(traffic, monkeypatch):
+    h, worker, _ = traffic
+    worker.api.data = batch_reports(4)
+    await worker.refresh()
+    original = h.mc.commands.send_chan_msg
+    attempts = []
+    async def send(channel, text):
+        attempts.append(text)
+        if len(attempts) == 2:
+            raise RuntimeError('reply may already have reached the radio')
+        return await original(channel, text)
+    monkeypatch.setattr(h.mc.commands, 'send_chan_msg', send)
+    assert await h.say('Alice: /reports') == Decision.DROP_SEND_FAILED
+    assert len(attempts) == 2 and len(h.sent) == 1
+    assert h.inbound_records()[-1]['pages_sent'] == 1
+    assert h.limiter.snapshot()['global_tokens'] == 18
+
+
+async def test_reports_stops_when_source_expires_while_waiting_to_send(traffic, monkeypatch):
+    h, worker, clock = traffic
+    worker.api.data = batch_reports(4)
+    await worker.refresh()
+    async def hold(_):
+        if h.sent:
+            clock.advance(601)
+    monkeypatch.setattr(h.service, '_hold_for_quiet_channel', hold)
+    assert await h.say('Alice: /reports') == Decision.ANSWERED_TRAFFIC_CHANNEL
+    assert len(h.sent) == 1
+    assert h.inbound_records()[-1]['reason'] == 'traffic-reports-changed'
+    assert h.inbound_records()[-1]['pages_sent'] == 1
+
+
+async def test_reports_checks_each_message_against_output_gate(traffic):
+    from bot.guard import Verdict
+    h, worker, _ = traffic
+    worker.api.data = batch_reports(4)
+    await worker.refresh()
+    class Gate:
+        def check(self, text):
+            return Verdict('2 of 4.' in text, 1.0, (), text)
+    h.service.gate = Gate()
+    assert await h.say('Alice: /reports') == Decision.DROP_INJECTION
+    assert len(h.sent) == 1
+    assert h.inbound_records()[-1]['pages_sent'] == 1
+    assert h.limiter.snapshot()['global_tokens'] == 19
+
+
+async def test_report_batch_reserves_tokens_for_each_message(traffic, monkeypatch):
+    from tests.test_queue import until
+    h, worker, clock = traffic
+    h.service.cfg = replace(h.cfg, queue_max_pending=10)
+    h.service.queue_tick_s = 0.001
+    h.limiter._global.capacity = 1
+    h.limiter._global._tokens = 1
+    worker.api.data = batch_reports(5)
+    await worker.refresh()
+    times = []
+    original = h.mc.commands.send_chan_msg
+    async def send(channel, text):
+        times.append(clock())
+        return await original(channel, text)
+    monkeypatch.setattr(h.mc.commands, 'send_chan_msg', send)
+    task = asyncio.create_task(h.say('Alice: /reports'))
+    try:
+        for count in range(1, 5):
+            await until(lambda: len(h.sent) == count and h.service.stats.queue_depth == 1)
+            clock.advance(60/h.cfg.global_rate_per_min)
+        assert await asyncio.wait_for(task, 1) == Decision.ANSWERED_TRAFFIC_CHANNEL
+        assert len(h.sent) == 5
+        assert all(b-a >= 60/h.cfg.global_rate_per_min for a,b in zip(times,times[1:]))
+        assert h.limiter.snapshot()['global_tokens'] == 0
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+async def test_report_batch_yields_to_another_queued_request(traffic, monkeypatch):
+    from tests.test_queue import until
+    h, worker, _ = traffic
+    h.service.cfg = replace(h.cfg, queue_max_pending=10)
+    h.service.queue_tick_s = 0.001
+    worker.api.data = batch_reports(3)
+    await worker.refresh()
+    first_sent, release = asyncio.Event(), asyncio.Event()
+    original = h.mc.commands.send_chan_msg
+    async def send(channel, text):
+        result = await original(channel, text)
+        if len(h.sent) == 1:
+            first_sent.set()
+            await release.wait()
+        return result
+    monkeypatch.setattr(h.mc.commands, 'send_chan_msg', send)
+    batch = asyncio.create_task(h.say('Alice: /reports'))
+    other = None
+    try:
+        await asyncio.wait_for(first_sent.wait(), 1)
+        other = asyncio.create_task(h.say('Bob: /about'))
+        await until(lambda: h.service.stats.queue_depth == 1)
+        release.set()
+        await asyncio.wait_for(asyncio.gather(batch, other), 1)
+        assert len(h.sent) == 4
+        assert '1 of 3.' in h.sent[0][1]
+        assert '@[Bob]' in h.sent[1][1] and 'Traffic v2.0.2' in h.sent[1][1]
+        assert '2 of 3.' in h.sent[2][1] and '3 of 3.' in h.sent[3][1]
+    finally:
+        release.set()
+        for task in (batch, other):
+            if task is not None:
+                task.cancel()
+        await asyncio.gather(*(task for task in (batch, other) if task is not None), return_exceptions=True)

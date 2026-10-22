@@ -325,8 +325,9 @@ ahead. These are published plans, not live measurements. Saved city-event histor
 suppresses duplicates, allows a fresh day-before reminder after an announcement
 at least 48 hours earlier, and handles material changes and explicit cancellations.
 A notice disappearing never proves reopening. Minor city restrictions remain
-available on request. In #traffic, `/reports` starts the list and `/cont` reads one
-more report per message; `/reports` starts over. `/help` explains this flow,
+available on request. In #traffic, `/reports` automatically sends up to five
+numbered reports, one per message. If there are more, `/cont` requests the next
+group of five; `/reports` starts over. Each message follows the shared radio limits. `/help` explains this flow,
 `/examples` gives travel-time requests, and `/commands` explains the other
 commands. `/about` shows the traffic version,
 sources and computer/radio arrangement, and `/source` gives the repository link.

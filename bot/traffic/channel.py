@@ -293,7 +293,7 @@ class TrafficChannel:
                 self.service.log.emit('traffic_alert_error', reason=type(exc).__name__)
             await asyncio.sleep(self.tick_s)
 
-    def answer(self, prompt, available, sender=''):
+    def answer(self, prompt, available, sender='', *, batch_end=True):
         raw = prompt.lower().strip()
         prefixed = raw.startswith(('/', '!'))
         q = ' '.join((raw[1:] if prefixed else raw).rstrip('.?!').split())
@@ -306,7 +306,7 @@ class TrafficChannel:
         elif not prefixed:
             text = 'Use /reports for closures and incidents, or /help for instructions. Commands start with / or !.'
         elif q == 'help':
-            text = 'Read closures and incidents with /reports, then /cont for the next report. /examples shows travel-time requests. /commands has more.'
+            text = '/reports sends up to 5 numbered closure and incident reports. /examples shows travel-time requests. /commands explains other commands.'
         elif q == 'examples':
             text = '/Beltline gives travel times both ways. Try /Beltline eastbound or /I90 northbound for one direction.'
         elif q == 'commands':
@@ -374,8 +374,8 @@ class TrafficChannel:
                     text = 'End of reports. Use /reports to start again.'
                 else:
                     partial = self.city_api is not None and (not (self.fresh() and self.city_fresh()) or (getattr(self.city_api, 'unavailable', 0) or getattr(self.city_api, 'omitted', 0)))
-                    prefix = 'Partial coverage. ' if partial else ''
-                    suffix = ' Continue: /cont' if index < len(items) else ' End of reports.'
+                    prefix = ('Partial coverage. ' if partial else '')+f'{index} of {len(items)}. '
+                    suffix = (' Next 5: /cont' if index < len(items) else ' End of reports.') if batch_end else ''
                     detail = items[index-1].render(self.wall_clock(), available-len(prefix)-len(suffix))
                     if detail:
                         text = prefix+detail+suffix

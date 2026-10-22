@@ -623,7 +623,7 @@ async def test_long_city_report_navigation_and_details_keep_the_same_position(tr
     monkeypatch.setattr(worker, '_reports', lambda: [items[0], second])
     monkeypatch.setattr(planned.PlannedAlert, 'render', lambda *args: None)
     first = worker.answer('/reports', 135, 'Alice')
-    assert '/details' in first and first.endswith('Continue: /cont')
+    assert '/details' in first and first.endswith('Next 5: /cont')
     last = worker.answer('/cont', 135, 'Alice')
     assert '/details' in last and last.endswith('End of reports.')
     assert worker.answer('/details', 250, 'Alice') == URL+'-second'
