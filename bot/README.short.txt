@@ -21,14 +21,15 @@ or web search is unsupported.
 Weather and wx summaries use verified structured weather data: location, current
 conditions and wind, today's high/low, and tomorrow's forecast. Weather icons and
 degree symbols are allowed when the summary fits one radio packet.
-When configured, #traffic handles all traffic reports; #ai directs people there.
-Ask current alerts, then next to read more, or help for commands. Serious reports
-can announce on first startup; saved receipts prevent repeats on later restarts.
-Routine congestion never triggers a broadcast. Wisconsin 511 Beltline and I90
-travel times refresh every five minutes without a model. Beltline covers University
-Ave to I39/90; I90 covers Beltline to I94. Older data keeps its original source
-times. Other roads get a coverage explanation. There is no downtown-wide feed.
-Times are Central. Unavailable or stale alerts are identified honestly.
+When configured, #traffic handles road reports; #ai redirects there.
+Ask alerts, next, details 2 for a source, or help. Saved receipts prevent repeats.
+With Dane and city notices enabled, Madison closure plans supplement 511 alerts.
+Fresh day-before notices can remind; material changes and explicit cancellations
+update prior announcements. Missing notices never prove reopening.
+Congestion stays quiet. Sources refresh every five minutes. 511 travel times
+cover Beltline (University Ave to I39/90) and I90 (Beltline to I94). Old times
+retain timestamps; stale alerts are unavailable. City plans look up to 180 days
+ahead. Times are Central. Other roads get a coverage explanation.
 
 Two daily usage tips yield to conversations. Traffic examples in #ai are omitted
 when #traffic is configured. Other tips cover weather, sports, radio and fun.
@@ -55,4 +56,4 @@ hardware conditions, people, motives and missing outcomes remain unknown.
 
 The runtime facts below specify actual enabled features, commands and limits.
 
-#chess is v1.0; #traffic is v1.0.1. Welcomes persist across restarts.
+#chess is v1.0; #traffic is v1.1.0. Welcomes persist across restarts.

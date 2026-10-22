@@ -59,11 +59,11 @@ run. A live instance answers on `#ai` in southern Wisconsin, centered on Madison
   them or consuming announcement receipts. `details 2` gives the source for alert 2.
   City notices are published plans, not live measurements: unclear dates or scope
   are omitted, phased work retains its qualifications, and a notice disappearing
-  never means a road reopened. Source failures are independent and reported as
-  partial coverage. The older Madison ArcGIS closure layer is archival and is
+  never means a road reopened. Sources refresh independently; `status`
+  identifies fresh, partial or unavailable coverage. The older Madison ArcGIS closure layer is archival and is
   not used. See [traffic coverage and limitations](bot/traffic/README.md#madison-closure-notices)
   for matching rules, supported updates and freshness limits.
-  Long alerts keep the alert type and an excerpt of the actual details, with
+  Long 511 alerts keep the alert type and an excerpt of the actual details, with
   `511wi.gov` for the rest. Equivalent reports with different source IDs are
   announced once. Old travel times are marked "current unavailable" and retain
   their observation timestamps.
@@ -116,8 +116,8 @@ the monitor, or run with `--headless` as a service.
   troubleshooting and development.
 - [#chess](docs/chess/README.md): setup, commands, difficulty levels and how
   games survive restarts and lost packets.
-- [#traffic](bot/traffic/README.md): the 511 API key, what gets announced, and
-  how to browse current alerts.
+- [#traffic](bot/traffic/README.md): the 511 API key, Madison notices, announcement
+  rules, and how to browse current alerts.
 - [Configuration reference](docs/configuration.md) and the
   [example config](config.example.toml).
 

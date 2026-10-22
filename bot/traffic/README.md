@@ -1,8 +1,8 @@
 # #traffic: Mesh Potato Traffic
 
-Mesh Potato serves travel time questions and important Wisconsin 511 reports in
-**#traffic**. It uses the 511 feeds and official Madison transportation notices. A language model does not decide
-whether an incident happened, invent details, or rewrite an alert.
+Mesh Potato serves travel time questions, important Wisconsin 511 reports and
+official Madison transportation notices in **#traffic**. A language model does
+not decide whether an incident happened, invent details, or rewrite an alert.
 
 Automatic announcements cover serious incidents, significant road closures and
 dangerous road conditions. Routine congestion and ordinary lane restrictions
@@ -64,8 +64,8 @@ do not run an interactive shell need their own environment setup.
 Run one bot process for #ai, #chess and #traffic. Channel setup, the API key's
 presence and saved state are checked before channel handlers start. An API
 outage is retried at the next poll. Help remains available; automatic alerts
-require a successful feed snapshot no older than ten minutes. No radio channel
-is created or renamed by this code.
+require a successful check of their source within ten minutes. The 511 and city
+sources refresh independently. No radio channel is created or renamed by this code.
 
 ## Asking for reports
 
@@ -74,7 +74,7 @@ at most one reply so a list cannot flood the mesh.
 
 | Send | Result |
 | --- | --- |
-| `What are the current alerts?`, `current alerts`, `/alerts`, `!alerts` | First significant current or upcoming report, with a count |
+| `What are the current alerts?`, `current alerts`, `/alerts`, `!alerts` | First current or upcoming report, with a count; includes minor city restrictions |
 | `next`, `next alert`, `!next` | Next report in your list |
 | `alerts 2` | A specific report |
 | `details 2` | Source link for report 2; `details` uses your most recently read report |
@@ -83,7 +83,7 @@ at most one reply so a list cannot flood the mesh.
 | `help`, `/help`, `!help` | Commands and examples |
 | `help policy` | What gets announced automatically |
 | `help coverage` | Geographic scope and travel time coverage |
-| `status` | Last successful feed check and number of significant reports |
+| `status` | Independent 511/city coverage and report count; with city notices disabled, last successful 511 check |
 | `about`, `version` | Name, independent version and coverage; includes this README link only when it fits |
 
 For example, using the real schema of the October 10, 2026 WIS 19 closure:
@@ -93,15 +93,17 @@ For example, using the real schema of the October 10, 2026 WIS 19 closure:
 ```
 
 This is an example, not a permanent announcement. Dates and times come from the
-feed and use America/Chicago time. Upcoming closures say “closed” with the date
-and time. Source labels are omitted from reports to save space. Reports fit the radio packet using shorter
-complete wording, never cut off mid sentence. Very long reports fall back to
-the road, direction, county and incident type.
+feed and use America/Chicago time. Upcoming 511 closures say “closed” with the date
+and time; city notices say “planned”. Source labels are omitted to save space.
+Reports fit the radio packet using shorter complete wording, never cut off mid sentence. Very long 511 reports fall back to
+the road, direction, county and incident type. City reports that cannot fit direct
+the reader to `details NUMBER`; their automatic announcements are withheld.
 
 Each sender has their own list position. A changed report list starts navigation
-again at the first report. No matching significant reports does not mean every
-road is clear. If the feed is stale, the bot explains that it cannot verify the
-current alerts. It does not present an old alert list as current.
+again at the first report. No matching reports does not mean every road is clear.
+Stale sources are excluded from the list; reports from a fresh source remain
+available. Use `status` to check each source. If neither source is fresh, the bot
+explains that it cannot verify current alerts.
 
 When this channel is enabled, road traffic questions in #ai direct
 people to #traffic. Travel time answers and automatic traffic announcements
@@ -109,7 +111,9 @@ remain in #traffic. Questions about radio or network traffic still belong in #ai
 Other roads do not have a general live travel time lookup; the bot gives a
 coverage explanation or asks for a street rather than inventing a report.
 
-## Announcement rules
+<a id="announcement-rules"></a>
+
+## 511 announcement rules
 
 On the first successful startup, important reports that are still relevant can
 be announced even if their 511 update is several days old. An upcoming full
@@ -166,7 +170,7 @@ use three calls per poll, within the documented limit of ten calls per minute.
 Polling must complete successfully before a new snapshot replaces the previous
 one. Failed polls do not make old observations look fresh. Announcements stop
 once the last successful snapshot is ten minutes old, and each report's end
-time is checked again before transmission.
+time is checked again before transmission. City polling and freshness are separate.
 
 The existing travel time cache separately checks 511's public tables every five
 minutes. It preserves original observation times and marks older reports with
@@ -206,7 +210,8 @@ notices, the last attempted announcement and its reminder state. The rules are:
   the day before does not itself generate a reminder. A rescheduling to another
   date resets the reminder allowance after its correction is announced.
 - Compare changes to the last broadcast, not the last poll. Changes of at least
-  30 minutes, changed dates/scope/direction or changed phase schedules qualify.
+  30 minutes, changed scope/direction, newly specified or withdrawn start/end
+  dates, or changed phase schedules qualify.
   Smaller earlier starts or later endings qualify within 24 hours of the start;
   small less restrictive changes accumulate against the broadcast baseline.
 - Explicit cancellations, postponements and reopening notices get a post only
@@ -246,9 +251,11 @@ without asserting reopening. A notice with no known end is retained for at most
 publication extends its relevance. Terminal notices are considered for seven
 days after publication.
 
-511 and the city refresh independently every `traffic_refresh_s` (five minutes
-by default). A failed source cannot make another source unavailable or make its
-own old observations fresh. Broadcasts require a successful check within ten
+511 and the city refresh independently in the background every `traffic_refresh_s`
+(five minutes by default). Requests read these cached reports without fetching
+the source website. City observations and announcement history persist across
+restarts, but a fresh check is required before serving them again. A failed source
+cannot make another source unavailable or make its own old observations fresh. Broadcasts require a successful check within ten
 minutes. Individual failed city articles are excluded from that snapshot and
 coverage is marked partial; they do not cancel the saved events. The city serves
 cached pages, sometimes roughly an hour old: cache ages above six hours are
@@ -268,7 +275,8 @@ allows still-relevant eligible notices to broadcast.
 `traffic_notice_decision` log records contain the source, proposed text, and a
 reason such as "new notice", "already announced", "minor time change",
 "fresh day-before notice" or "cancelled". They are emitted when the inputs or
-reason change. `traffic_city_refresh` records parsed/omitted/unavailable counts.
+reason change. `traffic_city_refresh` records active-report, omitted-article and
+unavailable-article counts.
 The ordinary `traffic_alert_post` log records actual posting outcomes.
 `status` distinguishes fresh, partial and unavailable city coverage.
 
@@ -285,9 +293,11 @@ automatically retries that report. It might already have reached the mesh.
 People can still request it with `alerts`. Busy channels, expired reports and
 failed database writes do not mark an unsent report as delivered.
 
-The history is bounded to 10,000 distinct report identifiers. It is not silently
-evicted to make room for new reports. Corrupt or full history stops announcements
-and logs an error; existing receipts are preserved for operator recovery.
+History is bounded to 10,000 distinct 511 report identifiers and separately
+10,000 city events, with at most 200 source aliases per city event. Existing
+history is never silently evicted to make room. Corrupt history prevents startup;
+a capacity error rejects the affected refresh or update and logs an error.
+Existing receipts are preserved for operator recovery.
 
 Mesh Potato Traffic is version **1.1.0**, independent of the services in #chess and #ai. Say `about` or `version` to see it. Its first launch welcome explains
 alerts and travel times; a saved receipt keeps routine restarts quiet.

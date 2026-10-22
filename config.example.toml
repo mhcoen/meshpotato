@@ -50,7 +50,7 @@ web_location = "Madison, Wisconsin"  # used only for local weather/hours questio
 [traffic]
 traffic_channel_idx = -1        # set to the existing #traffic slot to enable its dedicated handler
 traffic_counties = "Dane"       # comma-separated counties for significant alerts
-traffic_lookahead_h = 24.0       # include major scheduled closures this many hours ahead
+traffic_lookahead_h = 24.0       # include major 511 scheduled closures this many hours ahead; city notices use 180 days
 traffic_announce_existing = true # first successful startup includes important current/upcoming reports
 traffic_madison_enabled = true  # official city street/event closure notices when Dane is selected
 traffic_madison_preview = false # log proposed city posts without transmitting or claiming receipts

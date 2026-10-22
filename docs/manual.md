@@ -48,8 +48,9 @@ Narrow terminals use tabs:
 - Optional [#chess channel](chess/README.md), with Stockfish, saved games per player,
   adjustable difficulty, legal-move checks, hints, draw handling and restart recovery.
 - Optional [#traffic channel](../bot/traffic/README.md) for important Wisconsin 511
-  reports, with help, current alert lists, requested travel times and saved
-  announcement history across restarts.
+  reports and official Madison street/event closure notices, with help, current
+  alert lists, source links, requested travel times and saved announcement history
+  across restarts.
 - A bundled [abbreviated README](../bot/README.short.txt) in every model request,
   with facts from the running configuration about commands, capabilities, memory,
   privacy and limits. Common questions about sports support, model identity and
@@ -317,9 +318,17 @@ and every five minutes in the background. No API key is needed for these travel
 times. When the dedicated #traffic channel is enabled, all traffic answers and
 announcements go there; the #ai channel directs traffic questions to #traffic. Help in #ai
 names that destination, and welcomes and usage tips in #ai stop inviting traffic
-questions on #ai. Traffic broadcasts compare derived incident facts,
-so cosmetic source edits stay quiet; repeat controls and receipt migration are
-documented in the traffic README.
+questions on #ai. 511 broadcasts compare derived incident facts, so cosmetic
+source edits stay quiet. With Dane County selected, official Madison notices
+also cover major downtown streets, approaches and event closures up to 180 days
+ahead. These are published plans, not live measurements. Saved city-event history
+suppresses duplicates, allows a fresh day-before reminder after an announcement
+at least 48 hours earlier, and handles material changes and explicit cancellations.
+A notice disappearing never proves reopening. Minor city restrictions remain
+available on request. Use `details 2` for a report source and `status` for
+independent 511/city coverage. `traffic_madison_preview = true` logs proposed city
+posts without sending them; 511 broadcasts continue. Repeat controls, supported
+updates, coverage limits and receipt migration are documented in the traffic README.
 Setup, help commands, current alert browsing and announcement rules are in the
 [#traffic README alongside its code](../bot/traffic/README.md). Questions such as
 "What is the traffic on the Beltline?" and "Beltline eastbound delays?" use a
@@ -870,7 +879,7 @@ Mesh Potato v2.0.6: Ask about weather, sports, traffic, radio, or a poem. Try /h
 ```
 
 The #chess and #traffic services introduce themselves as **Mesh Potato Chess v1.0** and
-**Mesh Potato Traffic v1.0.1**. Their versions advance independently of each other
+**Mesh Potato Traffic v1.1.0**. Their versions advance independently of each other
 and the AI package version. Their `about` and `version` replies show these versions.
 
 With the default `announce_once = true`, each channel records its welcome attempt

@@ -41,10 +41,10 @@ any key may appear in any section.
 | `model_timeout_s` | `25.0` | One total deadline shared by web retrieval, initial generation and every shortening/content retry; retrieval uses at most 12 seconds of this budget |
 | `web_enabled` | `true` | Automatic current-information lookup and `/web`; NFL/NBA/WNBA/MLB/NHL scores, active-season standings and next games use structured ESPN feeds without the model; sports pronoun follow-ups require that sender's recent successfully sent team answer; other searches send the question to DuckDuckGo and fetch up to three public result pages |
 | `web_location` | `Madison, Wisconsin` | Default location for local weather/hours questions without an explicit location; dates, including sports game dates, use the computer's local timezone |
-| `traffic_enabled` | `true` | Prefetch Madison Beltline and I-90 (Beltline to I-94) travel times from public Wisconsin 511 tables; requires `web_enabled` |
-| `traffic_refresh_s` | `300.0` | Background refresh interval, 60–600 seconds. Observations older than ten minutes retain their source dates/times |
+| `traffic_enabled` | `true` | Prefetch Madison Beltline and I-90 (Beltline to I-94) travel times from public Wisconsin 511 tables; requires `web_enabled` only when serving #ai without a dedicated #traffic channel. Does not control 511 or city alert polling |
+| `traffic_refresh_s` | `300.0` | Background refresh interval for travel times, 511 alerts and city notices, 60–600 seconds. Old travel times retain source dates/times; alerts require a successful source check within ten minutes |
 | `traffic_channel_idx` | `-1` | Optional dedicated `#traffic` slot; automatically served, with traffic questions elsewhere directed to it. Requires persistent state and environment `WI511_API_KEY` |
-| `traffic_counties` | `Dane` | Comma separated counties for significant incident, closure and hazardous road reports |
+| `traffic_counties` | `Dane` | Comma separated counties for significant 511 incident, closure and hazardous road reports; including Dane also enables Madison notices when `traffic_madison_enabled` is true |
 | `traffic_lookahead_h` | `24.0` | Include significant 511 scheduled closures this many hours ahead, from 1 to 72; city notices have a separate 180-day horizon |
 | `traffic_madison_enabled` | `true` | Add official Madison street/event closure notices when the dedicated traffic channel includes Dane County |
 | `traffic_madison_preview` | `false` | Log proposed city posts without transmitting or claiming receipts; 511 posts and requested reports continue |

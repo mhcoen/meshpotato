@@ -84,7 +84,7 @@ The existing database format gains tables without discarding saved conversations
 | --- | --- |
 | `usage_tips` | Usage example rotation and attempted scheduling slots |
 | `chess_games` | One game per sender name, full move history, restart confirmation and recent packet receipts |
-| `traffic_state` | First feed initialization, versioned alert fingerprints, derived hazard/closure/lane facts and claim times |
+| `traffic_state` | Independent source initialization; versioned 511 fingerprints, derived facts and claim times; city-event observations, source aliases, announcement baselines, conflicts and reminder state |
 | `startup_welcome` | Whether this channel has attempted its first welcome |
 
 Chess commits a completed turn before attempting its reply. Traffic and welcome
@@ -95,11 +95,13 @@ Chess and traffic require persistent storage.
 
 Traffic reports rejected before transmission are remembered only in memory.
 They may be checked again after restart, but do not block other eligible reports.
-The live feed snapshot and current alert browsing position are not persisted.
+The live 511 snapshot, source freshness and current alert browsing position are
+not persisted. City observations are saved, but need a fresh source check before
+being offered as current reports or broadcast.
 Moving a database aside also resets its welcomes, alert receipts and saved games;
 do not discard it simply to restart the program.
 
-Traffic fingerprint version 2 migrates older receipts lazily by identifier when
+511 fingerprint version 3 migrates older receipts lazily by identifier when
 that report next appears in a successful poll. The new facts are saved silently,
 keeping the previous claim time. An unseen identifier is not baselined during
 migration. Changed reports normally wait 30 minutes between attempts, except
@@ -107,3 +109,15 @@ for closure status changes, hazard set changes or an increase in blocked lanes.
 The interval and exception facts survive restart. A deliberately suppressed
 initial backlog is marked as unattempted, so its first later material change is
 not subject to a repeat interval for a transmission that never happened.
+
+City-event history is separate from 511 fingerprint migrations. It preserves the
+latest observations, publication identities and aliases, last attempted notice,
+silent startup baseline, conflicts and whether a day-before reminder was used.
+Preview mode saves observations without claiming announcements. Timing changes
+are compared with the last announcement rather than the previous poll; city
+corrections and reminders use the [city announcement rules](../bot/traffic/README.md#madison-closure-notices),
+not the 511 30-minute repeat interval.
+
+History holds up to 10,000 511 identifiers and separately 10,000 city events,
+with at most 200 source aliases per city event. Capacity errors preserve existing
+receipts rather than evicting them and risking repeat announcements.
