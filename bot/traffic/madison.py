@@ -13,6 +13,7 @@ from urllib.parse import urljoin, urlsplit
 from bs4 import BeautifulSoup
 import httpx
 
+from bot.channel_info import TRAFFIC_VERSION
 from bot.reply import plain_ascii
 from bot.traffic import CENTRAL
 from bot.traffic.api import FeedError
@@ -264,7 +265,9 @@ class MadisonNotices:
         try:
             async with asyncio.timeout(25):
                 async with httpx.AsyncClient(timeout=8, trust_env=False, follow_redirects=False,
-                                             transport=self.transport) as client:
+                                             transport=self.transport,
+                                             headers={'User-Agent': f'MeshPotato/{TRAFFIC_VERSION} (+https://github.com/mhcoen/meshpotato)',
+                                                      'Accept': 'text/html'}) as client:
                     html = await self._get(client, LIST_URL)
                     soup = BeautifulSoup(html, 'html.parser')
                     links = soup.select('.article-title a[href]')

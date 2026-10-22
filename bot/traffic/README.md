@@ -387,3 +387,6 @@ reported full closure, multiple blocked lanes or a serious hazard can still
 qualify. Description text contributes recognized hazard categories to the
 fingerprint, rather than its original wording. The safety gate still checks the
 actual rendered text before transmission.
+
+The Madison reader identifies itself as Mesh Potato, with its Traffic version and
+repository URL, and requests HTML on both listing and article requests.

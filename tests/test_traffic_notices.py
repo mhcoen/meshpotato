@@ -606,6 +606,10 @@ async def test_saved_official_listing_structure_filters_nontraffic_articles():
     listing = (FIXTURES/'madison_list.html').read_text()
     requested = []
     def respond(request):
+        # The live city site rejects default-client requests with HTTP 403.
+        from bot.channel_info import TRAFFIC_VERSION
+        assert request.headers['user-agent'] == f'MeshPotato/{TRAFFIC_VERSION} (+https://github.com/mhcoen/meshpotato)'
+        assert request.headers['accept'] == 'text/html'
         requested.append(str(request.url))
         page = listing if str(request.url) == LIST_URL else (FIXTURES/'madison_dayton.html').read_text()
         return httpx.Response(200,text=page,headers={'content-type':'text/html'})
