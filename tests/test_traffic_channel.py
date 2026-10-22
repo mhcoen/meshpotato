@@ -20,7 +20,7 @@ from bot.traffic.alerts import select_alerts, FINGERPRINT_VERSION
 from bot.traffic.api import FeedError, Wisconsin511
 from bot.traffic.channel import TrafficChannel
 from tests.conftest import FakeBackend, FakeClock, Harness, make_config
-from tests.test_traffic import cache
+from tests.test_traffic import cache, table, interstate_table
 
 NOW = datetime(2026, 10, 9, 7, 30, tzinfo=CENTRAL).timestamp()
 START = datetime(2026, 10, 10, 6, tzinfo=CENTRAL).timestamp()
@@ -250,7 +250,7 @@ async def test_suppressed_initial_backlog_does_not_hide_later_changes(traffic):
 
 
 @pytest.mark.parametrize('prefix', ['/', '!'])
-@pytest.mark.parametrize('command', ['help','policy','coverage','about','source',
+@pytest.mark.parametrize('command', ['help','examples','commands','policy','coverage','about','source',
     'readme','status','reports','cont','details'])
 async def test_help_and_reports_go_through_output_gate(traffic, command, prefix):
     h, worker, _ = traffic
@@ -281,8 +281,9 @@ async def test_short_and_unicode_name_still_get_usable_help(traffic):
     h, worker, _ = traffic
     await worker.refresh()
     assert await h.say('\U0001f31fMichael: /help') == Decision.ANSWERED_TRAFFIC_CHANNEL
-    assert '/reports: start; /cont: continue.' in h.sent[-1][1]
-    assert 'about' in h.sent[-1][1]
+    assert 'Read closures and incidents with /reports' in h.sent[-1][1]
+    assert '/cont for the next report' in h.sent[-1][1]
+    assert '/examples' in h.sent[-1][1]
     assert len((h.cfg.bot_name+': '+h.sent[-1][1]).encode()) <= 160
 
 
@@ -674,7 +675,7 @@ async def test_reports_prefixes_and_about_describe_the_traffic_service(traffic):
     assert worker.answer('/source', 135) == 'https://github.com/mhcoen/meshpotato'
     assert 'README.md' in worker.answer('/about', 250)
     assert 'README.md' in worker.answer('/readme', 135)
-    assert 'Important notices' in worker.answer('/policy', 135)
+    assert 'Automatic posts cover major incidents' in worker.answer('/policy', 135)
     assert 'Dane' in worker.answer('/coverage', 135)
 
 
@@ -686,3 +687,23 @@ async def test_removed_report_command_aliases_only_give_guidance(traffic):
     for command in ('reports', 'cont', 'help', '$reports', '$cont'):
         assert 'Commands start with / or !.' in worker.answer(command, 135, 'Alice')
     assert not worker.cursors
+
+
+async def test_help_explains_reports_and_examples_are_executable(traffic):
+    h, worker, _ = traffic
+    h.service.traffic = cache()
+    async def travel_times():
+        return {'recordsFiltered': 4, 'data': table()['data'] + interstate_table()['data']}
+    h.service.traffic.fetch = travel_times
+    await h.service.traffic.refresh()
+    examples = worker.answer('/examples', 135)
+    assert '/Beltline eastbound' in examples and '/I90 northbound' in examples
+    for prompt in ('/Beltline', '/Beltline eastbound', '/I90 northbound'):
+        answer = worker.answer(prompt, 135)
+        assert 'min' in answer
+        assert not answer.startswith('Try ')
+    commands = worker.answer('/commands', 135)
+    assert '/coverage: roads covered' in commands
+    assert '/policy: automatic posts' in commands
+    assert 'Reports: highways in Dane' in worker.answer('/coverage', 135)
+    assert 'cancellations' not in worker.answer('/policy', 135)

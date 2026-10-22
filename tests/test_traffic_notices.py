@@ -641,3 +641,13 @@ async def test_details_requires_a_viewed_report_and_resets_when_list_changes(tra
     worker.city_api.notices = []
     await worker.refresh()
     assert 'list changed' in worker.answer('/details', 135, 'Alice')
+
+
+async def test_city_help_describes_local_coverage_and_automatic_posts(traffic):
+    _, worker, _ = await city_worker(traffic)
+    coverage = worker.answer('/coverage', 135)
+    assert 'Dane County highways and Madison street closures' in coverage
+    assert 'Beltline to I94' in coverage
+    policy = worker.answer('/policy', 135)
+    assert 'Automatic posts' in policy and 'cancellations' in policy
+    assert 'Routine delays do not broadcast' in policy

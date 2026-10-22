@@ -79,13 +79,26 @@ same thing. Each request sends at most one reply so a list cannot flood the mesh
 | `/details` | Source link for the report just read |
 | `/Beltline` | Cached travel times in both directions |
 | `/I90 northbound` | Travel time between the Beltline and I94 |
-| `/help` | Commands and examples |
+| `/help` | How to read reports and where to find examples |
+| `/examples` | Travel-time requests you can copy |
+| `/commands` | Other commands, with an explanation of each |
 | `/policy` | What gets announced automatically |
 | `/coverage` | Geographic scope and travel time coverage |
 | `/status` | Independent 511/city coverage and report count; with city notices disabled, last successful 511 check |
 | `/about`, `/version` | Name, independent version, data sources and computer/radio arrangement; includes this README link when it fits |
 | `/source` | GitHub repository link |
 | `/readme` | This channel's README link |
+
+`/help` explains the task rather than listing unexplained command names:
+
+> Read closures and incidents with /reports, then /cont for the next report. /examples shows travel-time requests. /commands has more.
+
+`/examples` gives working travel-time requests:
+
+> /Beltline gives travel times both ways. Try /Beltline eastbound or /I90 northbound for one direction.
+
+`/commands` explains the remaining commands, including `/coverage` (roads covered)
+and `/policy` (automatic posts). Each help response fits one radio message.
 
 For example, using the real schema of the October 10, 2026 WIS 19 closure:
 

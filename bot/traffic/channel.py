@@ -304,15 +304,21 @@ class TrafficChannel:
             text = (self.service.traffic.answer(direction, available, include_source=False) if self.service.traffic is not None
                     else 'Travel-time lookup is disabled. Use /reports.')
         elif not prefixed:
-            text = 'Use /reports for reports, /cont to continue, or /help. Commands start with / or !.'
+            text = 'Use /reports for closures and incidents, or /help for instructions. Commands start with / or !.'
         elif q == 'help':
-            text = '/reports: start; /cont: continue. /Beltline /I90 /details /status /about /coverage /policy. ! also works.'
+            text = 'Read closures and incidents with /reports, then /cont for the next report. /examples shows travel-time requests. /commands has more.'
+        elif q == 'examples':
+            text = '/Beltline gives travel times both ways. Try /Beltline eastbound or /I90 northbound for one direction.'
+        elif q == 'commands':
+            text = '/details: source link. /status: data availability. /coverage: roads covered. /policy: automatic posts. /about: version.'
         elif q == 'policy':
-            text = 'Important notices, corrections and cancellations. A fresh day-before notice may repeat an early post. Routine delays stay quiet.'
+            text = ('Automatic posts cover major incidents, closures and hazards, plus key changes or cancellations. Routine delays do not broadcast.'
+                    if self.city_api is not None else
+                    'Automatic posts cover major incidents, highway closures and dangerous road conditions. Routine delays do not broadcast.')
         elif q == 'coverage' and self.city_api is not None:
-            text = f'511: {self.service.cfg.traffic_counties}. Madison: city closure notices, up to 180 days ahead. Travel times: Beltline and I90.'
+            text = f'Reports: {self.service.cfg.traffic_counties} County highways and Madison street closures. Travel times: Beltline and I90 (Beltline to I94).'
         elif q == 'coverage':
-            text = f'Alerts: {self.service.cfg.traffic_counties}; closures up to {self.service.cfg.traffic_lookahead_h:g}h ahead. Travel times: Madison Beltline and I90, Beltline to I94.'
+            text = f'Reports: highways in {self.service.cfg.traffic_counties}. Travel times: Madison Beltline and I90 (Beltline to I94).'
         elif q == 'source':
             text = 'https://github.com/mhcoen/meshpotato'
         elif q == 'readme':

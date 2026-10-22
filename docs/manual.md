@@ -326,7 +326,9 @@ suppresses duplicates, allows a fresh day-before reminder after an announcement
 at least 48 hours earlier, and handles material changes and explicit cancellations.
 A notice disappearing never proves reopening. Minor city restrictions remain
 available on request. In #traffic, `/reports` starts the list and `/cont` reads one
-more report per message; `/reports` starts over. `/about` shows the traffic version,
+more report per message; `/reports` starts over. `/help` explains this flow,
+`/examples` gives travel-time requests, and `/commands` explains the other
+commands. `/about` shows the traffic version,
 sources and computer/radio arrangement, and `/source` gives the repository link.
 Use `/details` for the last report's source and `/status` for
 independent 511/city coverage. `traffic_madison_preview = true` logs proposed city
