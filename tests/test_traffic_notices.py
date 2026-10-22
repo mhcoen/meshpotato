@@ -303,13 +303,13 @@ async def test_city_and_511_freshness_are_independent(traffic):
     clock.advance(601)
     assert await worker.refresh()
     assert not worker.fresh() and worker.city_fresh()
-    assert 'Partial coverage' in worker.answer('current', 160)
+    assert 'Partial coverage' in worker.answer('/reports', 160)
     await worker.publish_pending()
     assert len(h.sent) == 1
     worker.city_api.error = FeedError('city down')
     clock.advance(601)
     assert not await worker.refresh()
-    assert 'cannot verify' in worker.answer('current', 140)
+    assert 'cannot verify' in worker.answer('/reports', 140)
 
 
 async def test_all_city_posts_share_radio_limit_and_one_attempt_per_tick(traffic):
@@ -527,7 +527,7 @@ async def test_conflicting_city_notice_is_flagged_on_request_but_not_broadcast(t
     await worker.refresh()
     await worker.publish_pending()
     assert not h.sent
-    assert 'Unconfirmed:' in worker.answer('current', 220)
+    assert 'Unconfirmed:' in worker.answer('/reports', 220)
 
 
 def test_history_capacity_failure_preserves_receipts():
@@ -568,7 +568,7 @@ async def test_new_511_identifier_does_not_revive_explicitly_cancelled_city_even
     await worker.refresh()
     await worker.publish_pending()
     assert len(h.sent) == 2 and 'cancelled' in h.sent[-1][1]
-    assert 'cancelled' in worker.answer('current', 200)
+    assert 'cancelled' in worker.answer('/reports', 200)
 
 
 def test_explicit_whole_cancellation_after_intro_is_not_a_scheduled_closure():
@@ -622,9 +622,22 @@ async def test_long_city_report_navigation_and_details_keep_the_same_position(tr
     second = replace(items[0], key='second', notice=replace(items[0].notice, source_id=URL+'-second'))
     monkeypatch.setattr(worker, '_reports', lambda: [items[0], second])
     monkeypatch.setattr(planned.PlannedAlert, 'render', lambda *args: None)
-    assert 'details 1' in worker.answer('current', 135, 'Alice')
-    assert 'details 2' in worker.answer('next', 135, 'Alice')
-    assert worker.answer('details', 250, 'Alice') == URL+'-second'
-    assert worker.answer('next', 135, 'Alice') == 'End of reports. Say current to start again.'
-    assert 'details 1' in worker.answer('current', 135, 'Alice')
-    assert 'Sources: 511 + Madison' in worker.answer('about', 135)
+    first = worker.answer('/reports', 135, 'Alice')
+    assert '/details' in first and first.endswith('Continue: /cont')
+    last = worker.answer('/cont', 135, 'Alice')
+    assert '/details' in last and last.endswith('End of reports.')
+    assert worker.answer('/details', 250, 'Alice') == URL+'-second'
+    assert worker.answer('/cont', 135, 'Alice') == 'End of reports. Use /reports to start again.'
+    assert '/details' in worker.answer('/reports', 135, 'Alice')
+    assert 'Sources: 511 + Madison' in worker.answer('/about', 135)
+
+
+async def test_details_requires_a_viewed_report_and_resets_when_list_changes(traffic):
+    _, worker, _ = await city_worker(traffic)
+    await worker.refresh()
+    assert 'Use /reports to read' in worker.answer('/details', 135, 'Alice')
+    worker.answer('/reports', 135, 'Alice')
+    assert worker.answer('!details', 250, 'Alice') == URL
+    worker.city_api.notices = []
+    await worker.refresh()
+    assert 'list changed' in worker.answer('/details', 135, 'Alice')

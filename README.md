@@ -45,7 +45,7 @@ run. A live instance answers on `#ai` in southern Wisconsin, centered on Madison
 - **Plays chess.** An optional `#chess` channel runs Stockfish with saved games
   per player, adjustable difficulty, hints, draw claims and move history.
 - **Reports traffic.** An optional `#traffic` channel announces serious
-  Wisconsin 511 incidents and closures. `current` gives the first report; `next`
+  Wisconsin 511 incidents and closures. `/reports` gives the first report; `/cont`
   gives the following report. It also serves Madison Beltline travel times. With Dane County selected, it also reads official
   Madison transportation notices for major local street and event closures.
   Useful city notices can be announced up to 180 days ahead. Repeated polls stay
@@ -56,10 +56,10 @@ run. A live instance answers on `#ai` in southern Wisconsin, centered on Madison
   Routine congestion stays quiet.
   `traffic_madison_enabled = false` disables the city source;
   `traffic_madison_preview = true` logs proposed city announcements without sending
-  them or consuming announcement receipts. `details 2` gives the source for alert 2.
+  them or consuming announcement receipts. `/details` gives the source for the report just read.
   City notices are published plans, not live measurements: unclear dates or scope
   are omitted, phased work retains its qualifications, and a notice disappearing
-  never means a road reopened. Sources refresh independently; `status`
+  never means a road reopened. Sources refresh independently; `/status`
   identifies fresh, partial or unavailable coverage. The older Madison ArcGIS closure layer is archival and is
   not used. See [traffic coverage and limitations](bot/traffic/README.md#madison-closure-notices)
   for matching rules, supported updates and freshness limits.

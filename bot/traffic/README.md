@@ -69,29 +69,28 @@ sources refresh independently. No radio channel is created or renamed by this co
 
 ## Asking for reports
 
-Plain text, slash commands and exclamation commands all work. Each request sends
-at most one reply so a list cannot flood the mesh.
+Commands start with `/` or `!`; for example, `/reports` and `!reports` do the
+same thing. Each request sends at most one reply so a list cannot flood the mesh.
 
 | Send | Result |
 | --- | --- |
-| `current`, `/current`, `!current` | First current or upcoming report, with a count; includes minor city restrictions |
-| `next`, `/next`, `!next` | Next report in your list |
-| `current 2` | A specific report |
-| `details 2` | Source link for report 2; `details` uses your most recently read report |
-| `Beltline` | Cached travel times in both directions |
-| `I90 northbound` | Travel time between the Beltline and I94 |
-| `help`, `/help`, `!help` | Commands and examples |
-| `policy` | What gets announced automatically |
-| `coverage` | Geographic scope and travel time coverage |
-| `status` | Independent 511/city coverage and report count; with city notices disabled, last successful 511 check |
-| `about`, `version` | Name, independent version, data sources and computer/radio arrangement; includes this README link when it fits |
-| `source` | GitHub repository link |
-| `readme` | This channel's README link |
+| `/reports` | Start reading current and upcoming reports; includes minor city restrictions |
+| `/cont` | Continue with the next report |
+| `/details` | Source link for the report just read |
+| `/Beltline` | Cached travel times in both directions |
+| `/I90 northbound` | Travel time between the Beltline and I94 |
+| `/help` | Commands and examples |
+| `/policy` | What gets announced automatically |
+| `/coverage` | Geographic scope and travel time coverage |
+| `/status` | Independent 511/city coverage and report count; with city notices disabled, last successful 511 check |
+| `/about`, `/version` | Name, independent version, data sources and computer/radio arrangement; includes this README link when it fits |
+| `/source` | GitHub repository link |
+| `/readme` | This channel's README link |
 
 For example, using the real schema of the October 10, 2026 WIS 19 closure:
 
 ```text
-1 of 2. WIS 19 eastbound closed 10/10 6AM to 8PM: WIS 113 to River Rd. Say next.
+WIS 19 eastbound closed 10/10 6AM to 8PM: WIS 113 to River Rd. Continue: /cont
 ```
 
 This is an example, not a permanent announcement. Dates and times come from the
@@ -99,18 +98,18 @@ feed and use America/Chicago time. Upcoming 511 closures say “closed” with t
 and time; city notices say “planned”. Source labels are omitted to save space.
 Reports fit the radio packet using shorter complete wording, never cut off mid sentence. Very long 511 reports fall back to
 the road, direction, county and incident type. City reports that cannot fit direct
-the reader to `details NUMBER`; their automatic announcements are withheld.
+the reader to `/details`; their automatic announcements are withheld.
 
-Start with `current`. It returns report 1, such as "1 of 3", in one radio message.
-Say `next` to read report 2, then `next` again for report 3. At the end, `next`
-says "End of reports"; `current` starts again. `details` gives the source for
-the report just viewed. A report too long to fit provides a source hint and
-still allows `next` to advance.
+Start with `/reports`. Each report ends with "Continue: /cont" when another
+is available, or "End of reports." for the last one. `/cont` continues;
+`/reports` starts again. There are no numbered report commands. `/details`
+gives the source for the report just viewed. A report too long to fit provides
+a source hint and the same continuation prompt.
 
 Each sender has their own list position. A changed report list starts navigation
 again at the first report. No matching reports does not mean every road is clear.
 Stale sources are excluded from the list; reports from a fresh source remain
-available. Use `status` to check each source. If neither source is fresh, the bot
+available. Use `/status` to check each source. If neither source is fresh, the bot
 explains that it cannot verify current alerts.
 
 When this channel is enabled, road traffic questions in #ai direct
@@ -200,7 +199,7 @@ ArcGIS Road_Closures map: the raw map inspected during implementation contained
 records ending in 2021. No model is used for parsing, selection or wording.
 
 The city source selects major downtown streets, approaches and large event notices.
-Ordinary lane restrictions and other small closures remain available in `current`
+Ordinary lane restrictions and other small closures remain available in `/reports`
 but do not automatically broadcast. A phased project is one qualified notice,
 not a post per block or a claim that every street stays continuously closed.
 A scheduled notice always says "planned"; it is not field confirmation that
@@ -249,7 +248,7 @@ Simple directional partial cancellations can inherit the known event schedule.
 Unclear schedules, unsupported partial-cancellation wording, uncertain directions
 and articles with changed markup are omitted rather than guessed. This is not
 comprehensive coverage of every city notice. The source link remains available
-with `details NUMBER`; when the article URL cannot fit, the city news index is
+with `/details`; when the article URL cannot fit, the city news index is
 provided. Long announcements are withheld rather than truncated.
 
 Date-only notices never invent an exact starting hour. Multi-phase/recurring
@@ -286,7 +285,7 @@ reason such as "new notice", "already announced", "minor time change",
 reason change. `traffic_city_refresh` records active-report, omitted-article and
 unavailable-article counts.
 The ordinary `traffic_alert_post` log records actual posting outcomes.
-`status` distinguishes fresh, partial and unavailable city coverage.
+`/status` distinguishes fresh, partial and unavailable city coverage.
 
 ## Storage and failures
 
@@ -298,7 +297,7 @@ database is required; disabling persistence would repeat alerts on every restart
 A receipt is saved immediately before the radio attempt, after validation and
 rate admission. An ambiguous failed send, interrupted send or restart never
 automatically retries that report. It might already have reached the mesh.
-People can still request it with `current`. Busy channels, expired reports and
+People can still request it with `/reports`. Busy channels, expired reports and
 failed database writes do not mark an unsent report as delivered.
 
 History is bounded to 10,000 distinct 511 report identifiers and separately
@@ -307,7 +306,7 @@ history is never silently evicted to make room. Corrupt history prevents startup
 a capacity error rejects the affected refresh or update and logs an error.
 Existing receipts are preserved for operator recovery.
 
-Mesh Potato Traffic is version **2.0.0**, independent of the services in #chess and #ai. Say `about` or `version` to see it. Its first launch welcome explains
+Mesh Potato Traffic is version **2.0.0**, independent of the services in #chess and #ai. Use `/about` or `/version` to see it. Its first launch welcome explains
 alerts and travel times; a saved receipt keeps routine restarts quiet.
 
 The `--no-announce` switch suppresses all channel welcomes. It does not
