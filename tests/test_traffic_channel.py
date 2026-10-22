@@ -229,7 +229,7 @@ async def test_stale_or_ended_report_is_not_announced(traffic):
     assert not h.sent
     worker.api.error = FeedError('unavailable')
     assert not await worker.refresh()
-    assert 'cannot verify' in worker.answer('alerts', 130)
+    assert 'cannot verify' in worker.answer('current', 130)
     worker.api.error = None
     clock.advance(2*86400)
     await worker.refresh()
@@ -249,8 +249,8 @@ async def test_suppressed_initial_backlog_does_not_hide_later_changes(traffic):
     assert len(h.sent) == 1
 
 
-@pytest.mark.parametrize('command', ['help','/help','!help','help policy','help coverage','about','status','alerts','alerts 2',
-    'What are the current alerts?', 'current alerts', '!next'])
+@pytest.mark.parametrize('command', ['help','/help','!help','policy','coverage','about','/about','!about','source',
+    'readme','status','current','/current','!current','current 2','!next'])
 async def test_help_and_reports_go_through_output_gate(traffic, command):
     h, worker, _ = traffic
     await worker.refresh()
@@ -263,11 +263,13 @@ async def test_alert_navigation_is_per_sender_and_resets_when_list_changes(traff
     h, worker, _ = traffic
     worker.api.data = snapshot([incident(), closure()])
     await worker.refresh()
-    first = worker.answer('What are the current alerts?', 135, 'Alice')
+    first = worker.answer('current', 135, 'Alice')
     assert '1 of 2.' in first and 'I-90' in first and 'Say next.' in first
     assert '2 of 2.' in worker.answer('next', 135, 'Alice')
     assert '1 of 2.' in worker.answer('next', 135, 'Bob')
-    assert 'Choose alerts' in worker.answer('next', 135, 'Alice')
+    assert worker.answer('next', 135, 'Alice') == 'End of reports. Say current to start again.'
+    assert '1 of 2.' in worker.answer('current', 135, 'Alice')
+    assert '2 of 2.' in worker.answer('current 2', 135, 'Alice')
     worker.api.data = snapshot([closure()])
     await worker.refresh()
     assert '1 of 1.' in worker.answer('next', 135, 'Alice')
@@ -277,7 +279,8 @@ async def test_short_and_unicode_name_still_get_usable_help(traffic):
     h, worker, _ = traffic
     await worker.refresh()
     assert await h.say('\U0001f31fMichael: /help') == Decision.ANSWERED_TRAFFIC_CHANNEL
-    assert 'current alerts' in h.sent[-1][1]
+    assert 'current: first report; next: next report.' in h.sent[-1][1]
+    assert 'about' in h.sent[-1][1]
     assert len((h.cfg.bot_name+': '+h.sent[-1][1]).encode()) <= 160
 
 
@@ -653,3 +656,29 @@ def test_distinct_or_negated_lane_details_are_preserved():
     row['LanesAffected'] = '3 lanes blocked.'
     alert = select_alerts(snapshot([row]), NOW, {'dane'})[0]
     assert alert.detail.endswith('3 lanes blocked.') and alert.blocked_lanes == 3
+
+
+async def test_current_prefixes_and_about_describe_the_traffic_service(traffic):
+    h, worker, _ = traffic
+    await worker.refresh()
+    first = worker.answer('current', 135, 'Alice')
+    for command in ('/current', '!current'):
+        assert worker.answer(command, 135, 'Alice') == first
+    about = worker.answer('about', 135)
+    assert 'Mesh Potato Traffic v2.0.0' in about
+    assert 'Sources: Wisconsin 511' in about
+    assert 'Computer + MeshCore radio.' in about
+    assert 'Model:' not in about
+    assert worker.answer('source', 135) == 'https://github.com/mhcoen/meshpotato'
+    assert 'README.md' in worker.answer('about', 250)
+    assert 'README.md' in worker.answer('readme', 135)
+    assert 'Important notices' in worker.answer('policy', 135)
+    assert 'Dane' in worker.answer('coverage', 135)
+
+
+async def test_removed_report_command_aliases_only_give_guidance(traffic):
+    _, worker, _ = traffic
+    await worker.refresh()
+    for command in ('current alerts', 'alerts', 'list', 'next alert', 'help policy', 'help coverage'):
+        assert worker.answer(command, 135, 'Alice').startswith('Try current, next, Beltline or I90.')
+    assert not worker.cursors

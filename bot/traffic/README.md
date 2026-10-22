@@ -74,17 +74,19 @@ at most one reply so a list cannot flood the mesh.
 
 | Send | Result |
 | --- | --- |
-| `What are the current alerts?`, `current alerts`, `/alerts`, `!alerts` | First current or upcoming report, with a count; includes minor city restrictions |
-| `next`, `next alert`, `!next` | Next report in your list |
-| `alerts 2` | A specific report |
+| `current`, `/current`, `!current` | First current or upcoming report, with a count; includes minor city restrictions |
+| `next`, `/next`, `!next` | Next report in your list |
+| `current 2` | A specific report |
 | `details 2` | Source link for report 2; `details` uses your most recently read report |
-| `traffic Beltline`, `What's traffic like on the Beltline?` | Cached travel times in both directions |
-| `traffic I90 northbound` | Travel time between the Beltline and I94 |
+| `Beltline` | Cached travel times in both directions |
+| `I90 northbound` | Travel time between the Beltline and I94 |
 | `help`, `/help`, `!help` | Commands and examples |
-| `help policy` | What gets announced automatically |
-| `help coverage` | Geographic scope and travel time coverage |
+| `policy` | What gets announced automatically |
+| `coverage` | Geographic scope and travel time coverage |
 | `status` | Independent 511/city coverage and report count; with city notices disabled, last successful 511 check |
-| `about`, `version` | Name, independent version and coverage; includes this README link only when it fits |
+| `about`, `version` | Name, independent version, data sources and computer/radio arrangement; includes this README link when it fits |
+| `source` | GitHub repository link |
+| `readme` | This channel's README link |
 
 For example, using the real schema of the October 10, 2026 WIS 19 closure:
 
@@ -98,6 +100,12 @@ and time; city notices say “planned”. Source labels are omitted to save spac
 Reports fit the radio packet using shorter complete wording, never cut off mid sentence. Very long 511 reports fall back to
 the road, direction, county and incident type. City reports that cannot fit direct
 the reader to `details NUMBER`; their automatic announcements are withheld.
+
+Start with `current`. It returns report 1, such as "1 of 3", in one radio message.
+Say `next` to read report 2, then `next` again for report 3. At the end, `next`
+says "End of reports"; `current` starts again. `details` gives the source for
+the report just viewed. A report too long to fit provides a source hint and
+still allows `next` to advance.
 
 Each sender has their own list position. A changed report list starts navigation
 again at the first report. No matching reports does not mean every road is clear.
@@ -192,7 +200,7 @@ ArcGIS Road_Closures map: the raw map inspected during implementation contained
 records ending in 2021. No model is used for parsing, selection or wording.
 
 The city source selects major downtown streets, approaches and large event notices.
-Ordinary lane restrictions and other small closures remain available in `alerts`
+Ordinary lane restrictions and other small closures remain available in `current`
 but do not automatically broadcast. A phased project is one qualified notice,
 not a post per block or a claim that every street stays continuously closed.
 A scheduled notice always says "planned"; it is not field confirmation that
@@ -290,7 +298,7 @@ database is required; disabling persistence would repeat alerts on every restart
 A receipt is saved immediately before the radio attempt, after validation and
 rate admission. An ambiguous failed send, interrupted send or restart never
 automatically retries that report. It might already have reached the mesh.
-People can still request it with `alerts`. Busy channels, expired reports and
+People can still request it with `current`. Busy channels, expired reports and
 failed database writes do not mark an unsent report as delivered.
 
 History is bounded to 10,000 distinct 511 report identifiers and separately

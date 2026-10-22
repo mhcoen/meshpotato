@@ -295,39 +295,40 @@ class TrafficChannel:
 
     def answer(self, prompt, available, sender=''):
         q = ' '.join(prompt.lower().strip().lstrip('/!').rstrip('.?!').split())
-        if q.startswith('web '):
-            q = q[4:]
-        if q in {'current alerts', 'what are the current alerts', 'what are the alerts',
-                 'any alerts', 'any current alerts', "what's happening", 'what is happening',
-                 'show alerts', 'show me the alerts', 'show me the current alerts', 'traffic alerts'}:
-            q = 'alerts'
         if re.fullmatch(r'(?:belt\s*line|i[- ]?90)(?: (?:northbound|southbound|eastbound|westbound))?', q):
             q = 'traffic on '+q
         direction = cached_traffic_direction(q, self.service.cfg.web_location)
         if direction is not None:
             text = (self.service.traffic.answer(direction, available, include_source=False) if self.service.traffic is not None
-                    else 'Travel-time lookup is disabled. Say alerts for significant 511 reports.')
-        elif q in {'help', 'commands', 'what can you do', 'how does this work'}:
-            text = 'Try traffic Beltline, traffic I90, current alerts, next, details 2, status, help policy or help coverage. / and ! work.'
-        elif q == 'help policy':
+                    else 'Travel-time lookup is disabled. Say current for reports.')
+        elif q == 'help':
+            text = 'current: first report; next: next report. Beltline | I90 | details | status | about | coverage | policy. / and ! work.'
+        elif q == 'policy':
             text = 'Important notices, corrections and cancellations. A fresh day-before notice may repeat an early post. Routine delays stay quiet.'
-        elif q == 'help coverage' and self.city_api is not None:
+        elif q == 'coverage' and self.city_api is not None:
             text = f'511: {self.service.cfg.traffic_counties}. Madison: city closure notices, up to 180 days ahead. Travel times: Beltline and I90.'
-        elif q == 'help coverage':
+        elif q == 'coverage':
             text = f'Alerts: {self.service.cfg.traffic_counties}; closures up to {self.service.cfg.traffic_lookahead_h:g}h ahead. Travel times: Madison Beltline and I90, Beltline to I94.'
-        elif q in {'about', 'version', 'readme', 'help readme'}:
+        elif q == 'source':
+            text = 'https://github.com/mhcoen/meshpotato'
+        elif q == 'readme':
+            text = 'https://github.com/mhcoen/meshpotato/blob/main/bot/traffic/README.md'
+        elif q in {'about', 'version'}:
             name, version = identity('traffic')
-            text = f'{name} v{version}: Alerts for {self.service.cfg.traffic_counties}; Madison travel times.'
+            sources = '511 + Madison' if self.city_api is not None else 'Wisconsin 511'
+            text = f'{name} v{version}. Sources: {sources}. Computer + MeshCore radio.'
             link = ' https://github.com/mhcoen/meshpotato/blob/main/bot/traffic/README.md'
             if len((text+link).encode()) <= available:
                 text += link
+            elif len(text+' Say source.') <= available:
+                text += ' Say source.'
         elif re.fullmatch(r'details(?: \d{1,4})?', q):
             items = self._reports()
             signature = tuple(a.identifier+':'+a.fingerprint for a in items)
             previous_signature, previous_index = self.cursors.get(sender, (signature, 1))
             index = int(q.split()[1]) if len(q.split()) > 1 else previous_index
             if len(q.split()) == 1 and signature != previous_signature:
-                text = 'The report list changed. Ask alerts, then details followed by the report number.'
+                text = 'The report list changed. Ask current, then details followed by the report number.'
             elif 1 <= index <= len(items) and isinstance(items[index-1], planned.PlannedAlert):
                 link = items[index-1].notice.source_id
                 text = link if len(link) <= available else 'Madison closure details: https://www.cityofmadison.com/transportation/news'
@@ -336,21 +337,21 @@ class TrafficChannel:
         elif q == 'status' and self.city_api is not None:
             wi = 'fresh' if self.fresh() else 'unavailable'
             city = ('partial' if (getattr(self.city_api, 'unavailable', 0) or getattr(self.city_api, 'omitted', 0)) else 'fresh') if self.city_fresh() else 'unavailable'
-            text = f'511: {wi}. Madison notices: {city}. {len(self._reports())} reports. Say alerts.'
+            text = f'511: {wi}. Madison notices: {city}. {len(self._reports())} reports. Say current.'
         elif q == 'status':
             if self.last_success is None:
                 text = 'Waiting for verified 511 data. Announcements are quiet until the feed is available.'
             else:
                 age = max(0, int((self.clock()-self.last_success)//60))
-                text = f'511 checked {age} min ago; {len(self.current)} significant reports. '+('Say alerts to read them.' if self.fresh() else 'Feed is stale; broadcasts paused.')
-        elif q in {'next', 'next alert'} or re.fullmatch(r'(?:alerts|list|traffic)(?: \d{1,4})?', q):
+                text = f'511 checked {age} min ago; {len(self.current)} significant reports. '+('Say current to read them.' if self.fresh() else 'Feed is stale; broadcasts paused.')
+        elif q == 'next' or re.fullmatch(r'current(?: \d{1,4})?', q):
             if not self.fresh() and not self.city_fresh():
                 text = 'I can get live traffic, but cannot verify the alerts right now. Please try again shortly.'
             else:
                 items = self._reports()
                 signature = tuple(a.identifier+':'+a.fingerprint for a in items)
                 previous_signature, previous_index = self.cursors.get(sender, ((), 0))
-                if q in {'next', 'next alert'}:
+                if q == 'next':
                     index = previous_index+1 if previous_signature == signature else 1
                 else:
                     index = int(q.split()[1]) if len(q.split()) == 2 else 1
@@ -358,8 +359,10 @@ class TrafficChannel:
                     text = 'No significant reports in the available feeds. This is not a guarantee that roads are clear.'
                     if self.city_api is not None and (not (self.fresh() and self.city_fresh()) or (getattr(self.city_api, 'unavailable', 0) or getattr(self.city_api, 'omitted', 0))):
                         text = 'Coverage is incomplete. No reports in the available data; this does not mean roads are clear.'
+                elif q == 'next' and index > len(items):
+                    text = 'End of reports. Say current to start again.'
                 elif not 1 <= index <= len(items):
-                    text = f'Choose alerts 1 through alerts {len(items)}.'
+                    text = f'Choose current 1 through current {len(items)}.'
                 else:
                     partial = self.city_api is not None and (not (self.fresh() and self.city_fresh()) or (getattr(self.city_api, 'unavailable', 0) or getattr(self.city_api, 'omitted', 0)))
                     prefix = ('Partial coverage. ' if partial else '')+f'{index} of {len(items)}. '
@@ -371,11 +374,10 @@ class TrafficChannel:
                         text = f'This city report needs more room. Say details {index} for the source.'
                     else:
                         text = 'This report needs more room. See 511wi.gov for details.'
-                    if detail:
-                        self.cursors.pop(sender, None)
-                        self.cursors[sender] = (signature, index)
-                        while len(self.cursors) > 500:
-                            self.cursors.popitem(last=False)
+                    self.cursors.pop(sender, None)
+                    self.cursors[sender] = (signature, index)
+                    while len(self.cursors) > 500:
+                        self.cursors.popitem(last=False)
         else:
-            text = traffic_clarification(q, self.service.cfg.web_location) or 'Try traffic Beltline, traffic I90, or alerts. Other road details: 511wi.gov. Say help for commands.'
-        return text if len(text) <= available else 'Try help, status or alerts. Full traffic details: 511wi.gov.'
+            text = traffic_clarification(q, self.service.cfg.web_location) or 'Try current, next, Beltline or I90. Other road details: 511wi.gov. Say help for commands.'
+        return text if len(text) <= available else 'Try help, status or current. Full traffic details: 511wi.gov.'

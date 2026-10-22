@@ -325,7 +325,10 @@ ahead. These are published plans, not live measurements. Saved city-event histor
 suppresses duplicates, allows a fresh day-before reminder after an announcement
 at least 48 hours earlier, and handles material changes and explicit cancellations.
 A notice disappearing never proves reopening. Minor city restrictions remain
-available on request. Use `details 2` for a report source and `status` for
+available on request. In #traffic, `current` starts the list and `next` reads one
+more report per message; `current` starts over. `about` shows the traffic version,
+sources and computer/radio arrangement, and `source` gives the repository link.
+Use `details` for the last report's source and `status` for
 independent 511/city coverage. `traffic_madison_preview = true` logs proposed city
 posts without sending them; 511 broadcasts continue. Repeat controls, supported
 updates, coverage limits and receipt migration are documented in the traffic README.

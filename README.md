@@ -45,8 +45,8 @@ run. A live instance answers on `#ai` in southern Wisconsin, centered on Madison
 - **Plays chess.** An optional `#chess` channel runs Stockfish with saved games
   per player, adjustable difficulty, hints, draw claims and move history.
 - **Reports traffic.** An optional `#traffic` channel announces serious
-  Wisconsin 511 incidents and closures, answers "current alerts", and serves
-  Madison Beltline travel times. With Dane County selected, it also reads official
+  Wisconsin 511 incidents and closures. `current` gives the first report; `next`
+  gives the following report. It also serves Madison Beltline travel times. With Dane County selected, it also reads official
   Madison transportation notices for major local street and event closures.
   Useful city notices can be announced up to 180 days ahead. Repeated polls stay
   quiet; a genuinely new notice in the final 24 hours can produce one reminder
