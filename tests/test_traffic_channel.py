@@ -668,7 +668,7 @@ async def test_reports_prefixes_and_about_describe_the_traffic_service(traffic):
     for command in ('/reports', '!reports'):
         assert worker.answer(command, 135, 'Alice') == first
     about = worker.answer('/about', 135)
-    assert 'Mesh Potato Traffic v2.0.0' in about
+    assert 'Mesh Potato Traffic v2.0.2' in about
     assert 'Sources: Wisconsin 511' in about
     assert 'Computer + MeshCore radio.' in about
     assert 'Model:' not in about

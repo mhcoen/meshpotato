@@ -884,7 +884,7 @@ Mesh Potato v2.0.6: Ask about weather, sports, traffic, radio, or a poem. Try /h
 ```
 
 The #chess and #traffic services introduce themselves as **Mesh Potato Chess v1.0** and
-**Mesh Potato Traffic v2.0.0**. Their versions advance independently of each other
+**Mesh Potato Traffic v2.0.2**. Their versions advance independently of each other
 and the AI package version. Their `about` and `version` replies show these versions.
 
 With the default `announce_once = true`, each channel records its welcome attempt
