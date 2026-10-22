@@ -667,7 +667,7 @@ async def test_reports_prefixes_and_about_describe_the_traffic_service(traffic):
     for command in ('/reports', '!reports'):
         assert worker.answer(command, 135, 'Alice') == first
     about = worker.answer('/about', 135)
-    assert 'Mesh Potato Traffic v2.0.2' in about
+    assert 'Mesh Potato Traffic v2.0.3' in about
     assert 'Sources: Wisconsin 511' in about
     assert 'Computer + MeshCore radio.' in about
     assert 'Model:' not in about
@@ -837,7 +837,7 @@ async def test_report_batch_yields_to_another_queued_request(traffic, monkeypatc
         await asyncio.wait_for(asyncio.gather(batch, other), 1)
         assert len(h.sent) == 4
         assert '1 of 3.' in h.sent[0][1]
-        assert '@[Bob]' in h.sent[1][1] and 'Traffic v2.0.2' in h.sent[1][1]
+        assert '@[Bob]' in h.sent[1][1] and 'Traffic v2.0.3' in h.sent[1][1]
         assert '2 of 3.' in h.sent[2][1] and '3 of 3.' in h.sent[3][1]
     finally:
         release.set()

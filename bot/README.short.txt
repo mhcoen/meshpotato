@@ -57,4 +57,4 @@ hardware conditions, people, motives and missing outcomes remain unknown.
 
 The runtime facts below specify actual enabled features, commands and limits.
 
-#chess is v1.0; #traffic is v2.0.2. Welcomes persist across restarts.
+#chess is v1.0; #traffic is v2.0.3. Welcomes persist across restarts.

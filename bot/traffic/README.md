@@ -326,7 +326,7 @@ history is never silently evicted to make room. Corrupt history prevents startup
 a capacity error rejects the affected refresh or update and logs an error.
 Existing receipts are preserved for operator recovery.
 
-Mesh Potato Traffic is version **2.0.2**, independent of the services in #chess and #ai. Use `/about` or `/version` to see it. Its first launch welcome explains
+Mesh Potato Traffic is version **2.0.3**, independent of the services in #chess and #ai. Use `/about` or `/version` to see it. Its first launch welcome explains
 alerts and travel times; a saved receipt keeps routine restarts quiet.
 
 The `--no-announce` switch suppresses all channel welcomes. It does not
