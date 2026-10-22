@@ -305,12 +305,12 @@ async def test_three_channel_first_welcomes_and_independent_versions(tmp_path, m
             sent = dict(radio.commands.sent)
             if launch == 0:
                 assert set(sent) == {1, 2, 3}
-                assert 'Mesh Potato Traffic v1.0.1:' in sent[2]
+                assert 'Mesh Potato Traffic v1.1.0:' in sent[2]
                 assert 'Mesh Potato Chess v1.0:' in sent[3]
                 assert f'v{__version__}:' in sent[1]
                 assert all(len(('MeshAI: '+text).encode()) <= 160 for text in sent.values())
                 await radio.deliver('Alice: version', 2)
-                assert 'Traffic v1.0.1' in radio.commands.sent[-1][1]
+                assert 'Traffic v1.1.0' in radio.commands.sent[-1][1]
                 await radio.deliver('Alice: about', 3)
                 assert 'Chess v1.0' in radio.commands.sent[-1][1]
             else:

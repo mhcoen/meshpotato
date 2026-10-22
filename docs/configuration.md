@@ -45,7 +45,9 @@ any key may appear in any section.
 | `traffic_refresh_s` | `300.0` | Background refresh interval, 60–600 seconds. Observations older than ten minutes retain their source dates/times |
 | `traffic_channel_idx` | `-1` | Optional dedicated `#traffic` slot; automatically served, with traffic questions elsewhere directed to it. Requires persistent state and environment `WI511_API_KEY` |
 | `traffic_counties` | `Dane` | Comma separated counties for significant incident, closure and hazardous road reports |
-| `traffic_lookahead_h` | `24.0` | Include significant scheduled closures this many hours ahead, from 1 to 72 |
+| `traffic_lookahead_h` | `24.0` | Include significant 511 scheduled closures this many hours ahead, from 1 to 72; city notices have a separate 180-day horizon |
+| `traffic_madison_enabled` | `true` | Add official Madison street/event closure notices when the dedicated traffic channel includes Dane County |
+| `traffic_madison_preview` | `false` | Log proposed city posts without transmitting or claiming receipts; 511 posts and requested reports continue |
 | `traffic_announce_existing` | `true` | Announce still relevant significant reports on the first successful startup; saved receipts prevent repeats across restarts |
 | `global_rate_per_min` | `4.0` | Burst floor: replies per minute across all senders |
 | `global_burst` | `1` | Global bucket size |

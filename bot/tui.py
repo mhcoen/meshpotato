@@ -293,6 +293,7 @@ class MeshPotatoApp(App[None]):
             "web_lookup", "web_source_rejected", "web_retry", "web_answer", "generation_budget_exhausted",
             "state_restored", "state_error", "chess_state_error",
             "traffic_alert_refresh", "traffic_alert_post", "traffic_alert_skipped", "traffic_alert_error",
+            "traffic_city_refresh", "traffic_notice_decision",
         ):
             details = {k: v for k, v in record.items() if k not in ("ts", "event")}
             line = f"{ts} [{event}] {details}"

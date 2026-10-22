@@ -52,6 +52,8 @@ traffic_channel_idx = -1        # set to the existing #traffic slot to enable it
 traffic_counties = "Dane"       # comma-separated counties for significant alerts
 traffic_lookahead_h = 24.0       # include major scheduled closures this many hours ahead
 traffic_announce_existing = true # first successful startup includes important current/upcoming reports
+traffic_madison_enabled = true  # official city street/event closure notices when Dane is selected
+traffic_madison_preview = false # log proposed city posts without transmitting or claiming receipts
 # API key: WI511_API_KEY in the process environment, never in this file.
 traffic_enabled = true          # prefetch Madison Beltline and I-90 (Beltline to I-94); no API key or model call
 traffic_refresh_s = 300.0        # every five minutes; reports older than ten minutes show source times/dates

@@ -73,6 +73,8 @@ async def test_columns_route_messages_alerts_and_shared_errors():
         for idx in (1, 2, 3):
             send(app, idx)
         send(app, 2, 'traffic_alert_post', outcome='sent', text='WIS 19 closed tomorrow.')
+        send(app, 2, 'traffic_notice_decision', outcome='preview', text='John Nolen Dr closure planned.')
+        send(app, 2, 'traffic_city_refresh', outcome='unavailable')
         send(app, 3, 'send_error', error='Radio unavailable')
         await pilot.pause()
         for idx in (1, 2, 3):
@@ -81,6 +83,8 @@ async def test_columns_route_messages_alerts_and_shared_errors():
             assert '[bold]literal[/bold]' in text
             assert all(f'Reply {other}' not in text for other in (1, 2, 3) if other != idx)
         assert 'WIS 19' in displayed(app, '#channel-2')
+        assert 'John Nolen' in displayed(app, '#channel-2')
+        assert 'traffic_city_refresh' in displayed(app, '#channel-2')
         assert 'Radio unavailable' in displayed(app, '#log')
         assert 'Reply 1' not in displayed(app, '#log')
 

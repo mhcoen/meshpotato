@@ -339,6 +339,10 @@ async def test_all_channels_preflight_and_ai_redirect(tmp_path, monkeypatch):
     from tests.test_channels import ChannelRadio
     monkeypatch.setattr('bot.cli.make_backend', lambda cfg: FakeBackend())
     monkeypatch.setattr('bot.traffic.api.Wisconsin511', FakeAPI)
+    class EmptyCityAPI:
+        async def snapshot(self, tracked):
+            return []
+    monkeypatch.setattr('bot.traffic.madison.MadisonNotices', EmptyCityAPI)
     monkeypatch.setattr(TrafficChannel, 'start', lambda self: None)
     from bot.traffic import TrafficCache
     monkeypatch.setattr(TrafficCache, 'start', lambda self: None)

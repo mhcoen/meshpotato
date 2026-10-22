@@ -1,7 +1,7 @@
 # #traffic: Mesh Potato Traffic
 
 Mesh Potato serves travel time questions and important Wisconsin 511 reports in
-**#traffic**. It uses the 511 feeds directly. A language model does not decide
+**#traffic**. It uses the 511 feeds and official Madison transportation notices. A language model does not decide
 whether an incident happened, invent details, or rewrite an alert.
 
 Automatic announcements cover serious incidents, significant road closures and
@@ -21,6 +21,8 @@ traffic_channel_idx = 2
 traffic_counties = "Dane"
 traffic_lookahead_h = 24.0
 traffic_announce_existing = true
+traffic_madison_enabled = true
+traffic_madison_preview = false
 traffic_enabled = true
 traffic_refresh_s = 300.0
 ```
@@ -75,6 +77,7 @@ at most one reply so a list cannot flood the mesh.
 | `What are the current alerts?`, `current alerts`, `/alerts`, `!alerts` | First significant current or upcoming report, with a count |
 | `next`, `next alert`, `!next` | Next report in your list |
 | `alerts 2` | A specific report |
+| `details 2` | Source link for report 2; `details` uses your most recently read report |
 | `traffic Beltline`, `What's traffic like on the Beltline?` | Cached travel times in both directions |
 | `traffic I90 northbound` | Travel time between the Beltline and I94 |
 | `help`, `/help`, `!help` | Commands and examples |
@@ -148,7 +151,7 @@ The latest eligible facts are used when the interval expires; intermediate
 edits are not queued. An unchanged report never repeats merely because time
 has elapsed. The same rules apply after a restart.
 
-Old receipts migrate to fingerprint version 2 silently on the first successful
+Old receipts migrate to fingerprint version 3 silently on the first successful
 poll containing that identifier. Their claim times are preserved. Previously
 unseen identifiers remain eligible, and old receipts for absent reports stay
 available for migration if those reports return. A failed migration write
@@ -175,6 +178,100 @@ second scheduler tick. The radio limiter can impose a longer wait. The first
 launch welcome is separate from alert broadcasts. Personality changes, usage tips and fortunes from #ai are not
 posted to #traffic.
 
+## Madison closure notices
+
+When Dane is selected, `traffic_madison_enabled = true` (the default) adds
+[City of Madison transportation news](https://www.cityofmadison.com/transportation/news).
+The reader follows official article links and rechecks previously tracked articles
+while they remain relevant. It does not use Twitter, search snippets or the legacy
+ArcGIS Road_Closures map: the raw map inspected during implementation contained
+records ending in 2021. No model is used for parsing, selection or wording.
+
+The city source selects major downtown streets, approaches and large event notices.
+Ordinary lane restrictions and other small closures remain available in `alerts`
+but do not automatically broadcast. A phased project is one qualified notice,
+not a post per block or a claim that every street stays continuously closed.
+A scheduled notice always says "planned"; it is not field confirmation that
+barricades are currently in place.
+
+City notices have their own persistent event history, separate from 511 receipt
+format migrations. It records the latest facts, publication identities, linked
+notices, the last attempted announcement and its reminder state. The rules are:
+
+- Announce a useful first notice even weeks or months ahead (up to 180 days).
+- Suppress repeated polling, cosmetic normalization and matching republications
+  close together. A new source ID alone is not a new event.
+- Allow one reminder when a **new publication** appears within 24 hours of the
+  start, and the previous announcement was at least 48 hours earlier. Reaching
+  the day before does not itself generate a reminder. A rescheduling to another
+  date resets the reminder allowance after its correction is announced.
+- Compare changes to the last broadcast, not the last poll. Changes of at least
+  30 minutes, changed dates/scope/direction or changed phase schedules qualify.
+  Smaller earlier starts or later endings qualify within 24 hours of the start;
+  small less restrictive changes accumulate against the broadcast baseline.
+- Explicit cancellations, postponements and reopening notices get a post only
+  if the channel previously attempted to announce the original restriction.
+  Disappearance and an elapsed estimated end time never create an all-clear.
+- An explicit reinstatement or newly published replacement can restore a
+  cancelled event. An old cached pre-cancellation article cannot do so.
+- Related updates are consolidated before transmission. A cancellation before
+  the original is sent results in no post. Partial corrections preserve the
+  restrictions that remain, rather than becoming a blanket cancellation.
+- Conflicting notices with equal evidence are withheld from broadcasting and
+  marked "Unconfirmed" on request until a later update resolves them.
+
+Cross-source suppression is deliberately strict: a city notice and a 511
+construction report must agree on an explicit named segment, direction and exact
+start/end times, and describe the same full closure. Different hazards or merely
+nearby incidents are not merged. Existing 511 receipts can provide a baseline
+when their saved fingerprint matches the current report; no old receipt is reset
+or retried to establish that baseline. Uncertain matches remain separate.
+
+### Published plans and coverage limits
+
+The parser supports explicit month/day dates, simple clock windows, estimated
+month or day/week durations, dated phase/recurring notices, explicit status
+headlines, and rescheduling phrased with an original date and a new date.
+Simple directional partial cancellations can inherit the known event schedule.
+Unclear schedules, unsupported partial-cancellation wording, uncertain directions
+and articles with changed markup are omitted rather than guessed. This is not
+comprehensive coverage of every city notice. The source link remains available
+with `details NUMBER`; when the article URL cannot fit, the city news index is
+provided. Long announcements are withheld rather than truncated.
+
+Date-only notices never invent an exact starting hour. Multi-phase/recurring
+notices explicitly say that times vary. After a known end, a report expires
+without asserting reopening. A notice with no known end is retained for at most
+30 days beyond its start or publication, whichever is later, unless a fresh
+publication extends its relevance. Terminal notices are considered for seven
+days after publication.
+
+511 and the city refresh independently every `traffic_refresh_s` (five minutes
+by default). A failed source cannot make another source unavailable or make its
+own old observations fresh. Broadcasts require a successful check within ten
+minutes. Individual failed city articles are excluded from that snapshot and
+coverage is marked partial; they do not cancel the saved events. The city serves
+cached pages, sometimes roughly an hour old: cache ages above six hours are
+rejected, but this cannot provide instantaneous cancellation delivery. The reader
+uses at most 60 active/recent article URLs per poll, four concurrent requests,
+a 25-second total fetch budget, and a one-megabyte limit per page. Exceeding the
+active-article limit fails the city check instead of silently dropping pages.
+This budget is independent of, and does not change, the chat generation budget.
+
+### Previewing and inspecting decisions
+
+Set `traffic_madison_preview = true` to fetch, save and show city reports while
+logging proposed announcements without transmitting them. Existing 511 posts
+continue normally. Preview does not mark a notice as sent; turning preview off
+allows still-relevant eligible notices to broadcast.
+
+`traffic_notice_decision` log records contain the source, proposed text, and a
+reason such as "new notice", "already announced", "minor time change",
+"fresh day-before notice" or "cancelled". They are emitted when the inputs or
+reason change. `traffic_city_refresh` records parsed/omitted/unavailable counts.
+The ordinary `traffic_alert_post` log records actual posting outcomes.
+`status` distinguishes fresh, partial and unavailable city coverage.
+
 ## Storage and failures
 
 Announcement receipts are in the #traffic channel's SQLite database, for example
@@ -192,7 +289,7 @@ The history is bounded to 10,000 distinct report identifiers. It is not silently
 evicted to make room for new reports. Corrupt or full history stops announcements
 and logs an error; existing receipts are preserved for operator recovery.
 
-Mesh Potato Traffic is version **1.0.1**, independent of the services in #chess and #ai. Say `about` or `version` to see it. Its first launch welcome explains
+Mesh Potato Traffic is version **1.1.0**, independent of the services in #chess and #ai. Say `about` or `version` to see it. Its first launch welcome explains
 alerts and travel times; a saved receipt keeps routine restarts quiet.
 
 The `--no-announce` switch suppresses all channel welcomes. It does not
@@ -206,12 +303,14 @@ disable significant traffic alerts. Their startup behavior is controlled by
 | `__init__.py` | Existing travel time cache and traffic question routing |
 | `api.py` | Authenticated, bounded requests to the official 511 API |
 | `alerts.py` | Report selection, stable change detection and plain wording |
-| `channel.py` | Polling, saved announcement receipts, help and report navigation |
+| `channel.py` | Independent polling, saved announcement receipts, help and report navigation |
+| `madison.py` | Bounded official city notice reader and conservative parsing |
+| `planned.py` | Publication/event matching, corrections, reminders and durable decision history |
 
 Run isolated tests from the repository root:
 
 ```bash
-.venv/bin/pytest -q tests/test_traffic.py tests/test_traffic_channel.py
+.venv/bin/pytest -q tests/test_traffic.py tests/test_traffic_channel.py tests/test_traffic_notices.py
 ```
 
 Tests use fake API responses, clocks and radios. They do not start a live bot,

@@ -110,7 +110,9 @@ def build_service(cfg: Config, meshcore, log: EventLog, references: tuple[Refere
         if idx == cfg.traffic_channel_idx:
             from bot.traffic.api import Wisconsin511
             from bot.traffic.channel import TrafficChannel
-            child.traffic_channel = TrafficChannel(child, Wisconsin511())
+            from bot.traffic.madison import MadisonNotices
+            city = MadisonNotices() if cfg.traffic_madison_enabled and 'dane' in {c.strip().lower() for c in cfg.traffic_counties.split(',')} else None
+            child.traffic_channel = TrafficChannel(child, Wisconsin511(), city_api=city)
         services[idx] = child
     service = services[cfg.channel_idx]
     if cfg.traffic_enabled and (cfg.traffic_channel_idx >= 0 or cfg.web_enabled and any(child.chess is None for child in services.values())):

@@ -97,6 +97,8 @@ class Config:
     traffic_counties: str = "Dane"
     traffic_lookahead_h: float = 24.0
     traffic_announce_existing: bool = True
+    traffic_madison_enabled: bool = True
+    traffic_madison_preview: bool = False
 
     # [tips] Two low-priority usage examples per day, in host local time.
     tips_enabled: bool = True
