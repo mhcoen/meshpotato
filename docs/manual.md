@@ -345,9 +345,10 @@ posts without sending them; 511 broadcasts continue. Repeat controls, supported
 updates, coverage limits and receipt migration are documented in the traffic README.
 Setup, help commands, current alert browsing and announcement rules are in the
 [#traffic README alongside its code](../bot/traffic/README.md). Questions such as
-"What is the traffic on the Beltline?" and "Beltline eastbound delays?" use a
-prepared report for the University Avenue–I-39/90 corridor, without a foreground
-search or model call. In #ai, these requests redirect when #traffic
+"How's the Beltline?", "How is I90 northbound?", and "Beltline eastbound delays?" need
+no command prefix. They use cached times for the Beltline between University Avenue
+and I-39/90, or I-90 between the Beltline and I-94, without a foreground search or
+model call. In #ai, these requests redirect when #traffic
 is configured. The examples and general web behavior below describe traffic
 lookup in #ai when the dedicated channel is disabled. #traffic uses the same corridor
 cache without source labels and does not use general web search for other roads.

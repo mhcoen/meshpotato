@@ -70,7 +70,9 @@ sources refresh independently. No radio channel is created or renamed by this co
 ## Asking for reports
 
 Commands start with `/` or `!`; for example, `/reports` and `!reports` do the
-same thing. `/reports` and `/cont` send at most five messages per request, two seconds apart
+same thing. Ordinary travel-time questions such as "How's the Beltline?" or
+"How is I90 northbound?" need no prefix and use the cached corridor data.
+`/reports` and `/cont` send at most five messages per request, two seconds apart
 after the first message, sharing one normal request allowance. Other commands send one reply.
 
 | Send | Result |
@@ -96,7 +98,7 @@ after the first message, sharing one normal request allowance. Other commands se
 
 `/examples` gives working travel-time requests:
 
-> /Beltline gives travel times both ways. Try /Beltline eastbound or /I90 northbound for one direction.
+> Ask "How's the Beltline?" for both ways. /Beltline eastbound or /I90 northbound gives one direction.
 
 `/commands` explains the remaining commands, including `/coverage` (roads covered)
 and `/policy` (automatic posts). Each help response fits one radio message.

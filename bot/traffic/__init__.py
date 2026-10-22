@@ -32,9 +32,14 @@ I90_ROUTES = {
 def is_traffic_question(prompt: str) -> bool:
     if re.search(r'\b(?:radio|mesh|network|packet|website|internet|air traffic)\b', prompt, re.I):
         return False
-    return bool(re.search(r'\btraffic\b', prompt, re.I) or
+    return bool(cached_traffic_direction(prompt) is not None or re.search(r'\btraffic\b', prompt, re.I) or
                 re.search(r'\b(?:crash|accident|closure|closed|icy|ice|delay|delays)\b', prompt, re.I)
                 and re.search(r'\b(?:road|highway|belt\s*line|i[- ]?\d+|wis\s*\d+|us[- ]?\d+)\b', prompt, re.I))
+
+
+def _asks_for_current_conditions(words):
+    return bool(words & {'traffic', 'delay', 'delays', 'time', 'times', 'slow', 'congested', 'congestion'}
+                or {'how', 'is'} <= words or {'how', 's'} <= words)
 
 
 def beltline_direction(prompt: str, location: str = 'Madison, Wisconsin') -> str | None:
@@ -53,7 +58,7 @@ def beltline_direction(prompt: str, location: str = 'Madison, Wisconsin') -> str
                    'delay travel time times looking look like does it slow congested '
                    'congestion east west eastbound westbound eb wb and both directions '
                    'can could you give a an update report').split())
-    if words - allowed or not words.intersection({'traffic', 'delay', 'delays', 'time', 'times', 'slow', 'congested', 'congestion'}):
+    if words - allowed or not _asks_for_current_conditions(words):
         return None
     if 'madison' not in words and not re.search(r'\bmadison\b', location, re.I):
         return None
@@ -75,7 +80,7 @@ def cached_traffic_direction(prompt: str, location: str = 'Madison, Wisconsin') 
                    'congestion north south northbound southbound nb sb and both directions '
                    'can could you give a an update report').split())
     if ('i90' not in words or words - allowed
-            or not words.intersection({'traffic', 'delay', 'delays', 'time', 'times', 'slow', 'congested', 'congestion'})
+            or not _asks_for_current_conditions(words)
             or ('madison' not in words and not re.search(r'\bmadison\b', location, re.I))):
         return None
     north, south = bool(words & {'north', 'northbound', 'nb'}), bool(words & {'south', 'southbound', 'sb'})

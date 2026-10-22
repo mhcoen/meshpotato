@@ -315,12 +315,13 @@ async def test_persisted_receipts_survive_database_close(tmp_path):
         await h.service.stop()
 
 
-async def test_requested_travel_times_stay_in_traffic_channel(traffic):
+@pytest.mark.parametrize('question', ['traffic Beltline', 'How’s the beltline?', "How's the Beltline?", 'How is the Beltline?'])
+async def test_requested_travel_times_stay_in_traffic_channel(traffic, question):
     h, worker, clock = traffic
     clock.advance(1800)
     h.service.traffic = cache(clock)
     await h.service.traffic.refresh()
-    assert await h.say('Alice: traffic Beltline') == Decision.ANSWERED_TRAFFIC_CHANNEL
+    assert await h.say('Alice: '+question) == Decision.ANSWERED_TRAFFIC_CHANNEL
     assert 'Eastbound 22 min' in h.sent[-1][1]
     assert not worker.api.calls and not h.backend.calls
 
@@ -365,8 +366,9 @@ async def test_all_channels_preflight_and_ai_redirect(tmp_path, monkeypatch):
         await worker.refresh()
         await worker.publish_pending()
         assert radio.commands.sent[-1][0] == 3
-        await radio.deliver('Alice: traffic on the Beltline', 1)
-        assert radio.commands.sent[-1][0] == 1 and '#traffic' in radio.commands.sent[-1][1]
+        for question in ('traffic on the Beltline', 'How’s the beltline?', 'How is I90 northbound?'):
+            await radio.deliver('Alice: '+question, 1)
+            assert radio.commands.sent[-1][0] == 1 and '#traffic' in radio.commands.sent[-1][1]
         assert not service.services[1].backend.calls
         await radio.deliver('Alice: !help', 3)
         assert radio.commands.sent[-1][0] == 3
@@ -697,7 +699,7 @@ async def test_help_explains_reports_and_examples_are_executable(traffic):
     await h.service.traffic.refresh()
     examples = worker.answer('/examples', 135)
     assert '/Beltline eastbound' in examples and '/I90 northbound' in examples
-    for prompt in ('/Beltline', '/Beltline eastbound', '/I90 northbound'):
+    for prompt in ("How's the Beltline?", '/Beltline', '/Beltline eastbound', '/I90 northbound'):
         answer = worker.answer(prompt, 135)
         assert 'min' in answer
         assert not answer.startswith('Try ')

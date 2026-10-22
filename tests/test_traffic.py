@@ -50,6 +50,8 @@ def cache(clock=None):
     ('Any delays on the Beltline eastbound?', 'EB'),
     ('Beltline WB travel time?', 'WB'),
     ('How is traffic on the Madison Beltline?', ''),
+    ('How’s the beltline?', ''), ("How's the Beltline?", ''),
+    ('How is the Beltline westbound right now?', 'WB'),
     ('Beltline traffic both directions?', ''),
     ('Beltline eastbound and westbound traffic?', ''),
 ])
@@ -63,6 +65,8 @@ def test_routing(prompt, direction):
     'Beltline traffic from Verona Road to Park Street?', 'Beltline accidents?',
     'Traffic on the Beltline and I-90?', 'What is a beltline?',
     'Beltline closures?', 'Beltline traffic last night?',
+    'How is the Beltline tomorrow?', 'How is the Beltline designed?',
+    'How is the weather on the Beltline?', 'How is the Beltline in Atlanta?',
 ])
 def test_does_not_answer_other_questions_with_corridor_times(prompt):
     assert beltline_direction(prompt) is None
@@ -378,6 +382,9 @@ async def test_partial_refresh_uses_latest_each_direction_not_old_combined_snaps
 
 @pytest.mark.parametrize('question,direction', [
     ('traffic on i90', 'I90'), ('How is traffic on I-90?', 'I90'),
+    ('How’s I-90?', 'I90'), ("How's I90 northbound?", 'I90:NB'),
+    ('How is I-39/90 southbound?', 'I90:SB'),
+    ('How is I90 in Chicago?', None), ('How is I90 tomorrow?', None),
     ('Madison I 90 northbound traffic?', 'I90:NB'), ('I-39/90 southbound delays?', 'I90:SB'),
     ('Interstate 90 traffic both directions', 'I90'),
     ('I90 traffic in Chicago', None), ('I90 traffic to Janesville', None),

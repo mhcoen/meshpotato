@@ -308,7 +308,7 @@ class TrafficChannel:
         elif q == 'help':
             text = '/reports sends up to 5 numbered closure and incident reports. /examples shows travel-time requests. /commands explains other commands.'
         elif q == 'examples':
-            text = '/Beltline gives travel times both ways. Try /Beltline eastbound or /I90 northbound for one direction.'
+            text = 'Ask "How\'s the Beltline?" for both ways. /Beltline eastbound or /I90 northbound gives one direction.'
         elif q == 'commands':
             text = '/details: source link. /status: data availability. /coverage: roads covered. /policy: automatic posts. /about: version.'
         elif q == 'policy':

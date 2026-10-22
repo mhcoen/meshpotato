@@ -53,7 +53,8 @@ run. A live instance answers on `#ai` in southern Wisconsin, centered on Madison
   uses one normal request allowance; congestion pauses still apply. The final
   report omits "End of reports" when that space is needed for the closure text. `/cont` requests
   the next group if there are more. `/help` explains how to read them, and `/examples`
-  gives travel-time requests to try. It also serves Madison Beltline travel times. With Dane County selected, it also reads official
+  gives travel-time requests to try. Ordinary questions such as "How's the Beltline?"
+  work without a command prefix and return cached travel times. With Dane County selected, it also reads official
   Madison transportation notices for major local street and event closures.
   Useful city notices can be announced up to 180 days ahead. Repeated polls stay
   quiet; a genuinely new notice in the final 24 hours can produce one reminder
