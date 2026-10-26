@@ -170,6 +170,55 @@ def test_module_launch_requires_our_package(tmp_path):
     assert is_bot_command(argv, tmp_path)
 
 
+def test_legacy_scan_skips_privileged_login_process(monkeypatch):
+    from types import SimpleNamespace
+
+    class LoginProcess:
+        pid = os.getpid() + 1
+
+        def uids(self):
+            return SimpleNamespace(real=501, effective=0)
+
+        def cmdline(self):
+            pytest.fail("must not inspect privileged login's command line")
+
+    monkeypatch.setattr(os, "getuid", lambda: 501)
+    monkeypatch.setattr(os, "geteuid", lambda: 501)
+    monkeypatch.setattr(psutil, "process_iter", lambda: [LoginProcess()])
+    assert SingleInstance()._legacy_processes() == []
+
+
+@pytest.mark.parametrize("denied_at", ["uids", "cmdline", "cwd", "open_files"])
+def test_legacy_scan_still_rejects_uninspectable_same_user_process(tmp_path, monkeypatch, denied_at):
+    from types import SimpleNamespace
+
+    script = tmp_path / "meshpotato"
+    script.write_text("from bot.cli import main\n")
+
+    class CandidateProcess:
+        pid = os.getpid() + 1
+
+        def uids(self):
+            return SimpleNamespace(real=os.getuid(), effective=os.geteuid())
+
+        def cmdline(self):
+            return ["python", str(script)]
+
+        def cwd(self):
+            return str(tmp_path)
+
+        def open_files(self):
+            return []
+
+    def denied(self):
+        raise psutil.AccessDenied(self.pid)
+
+    monkeypatch.setattr(CandidateProcess, denied_at, denied)
+    monkeypatch.setattr(psutil, "process_iter", lambda: [CandidateProcess()])
+    with pytest.raises(InstanceError, match="cannot inspect process"):
+        SingleInstance()._legacy_processes()
+
+
 @pytest.mark.parametrize("name", ["meshpotato", "meshai"])
 @pytest.mark.parametrize("when", ["startup", "shutdown"])
 def test_cleans_up_legacy_processes_at_both_boundaries(tmp_path, monkeypatch, name, when):

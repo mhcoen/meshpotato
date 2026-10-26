@@ -139,7 +139,10 @@ class SingleInstance:
             if process.pid == os.getpid():
                 continue
             try:
-                if process.uids().real != os.getuid():
+                uids = process.uids()
+                # macOS login retains the login user's real UID while running
+                # as root. It is not our bot, and inspecting its argv is denied.
+                if uids.real != os.getuid() or uids.effective != os.geteuid():
                     continue
                 argv = process.cmdline()
                 # Avoid reading cwd/open files for unrelated programs.

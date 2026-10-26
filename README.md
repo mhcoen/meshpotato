@@ -121,6 +121,11 @@ and the channel it will serve; see
 Then say something on the channel. `/help` lists commands. Press `q` to quit
 the monitor, or run with `--headless` as a service.
 
+Startup checks for other Mesh Potato instances under your user account. On
+macOS, privileged `login` processes are excluded from this scan; an unreadable
+process running under your own user still blocks startup to protect against
+two bots sharing the radio.
+
 ## Going further
 
 - [The manual](docs/manual.md): installation in detail, radio setup, every
